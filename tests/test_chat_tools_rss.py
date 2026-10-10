@@ -91,3 +91,35 @@ def test_entry_links_kept_only_when_same_host_as_feed():
     links = [e["link"] for e in
              _run({}, FakeRSS(feeds=["https://feeds.example/x.xml"], entries=entries))["result"]["entries"]]
     assert links == ["https://feeds.example/p/1?utm=x", "other.example/p/2", "feeds.example/p/3"]
+
+
+FEED_Q = "https://feeds.example/x.xml?token=SECRET&t=ABC"
+
+
+@pytest.mark.parametrize("link,expected", [
+    ("https://feeds.example/post?id=1&token=SECRET&utm=x#frag", "https://feeds.example/post?id=1&utm=x"),
+    ("https://feeds.example/post?sig=anything", "https://feeds.example/post"),
+    ("https://feeds.example/post?x=ABC&p=123", "https://feeds.example/post?p=123"),
+    ("https://feeds.example/post?id=" + "a" * 32, "https://feeds.example/post"),
+    ("https://feeds.example/post?p=123", "https://feeds.example/post?p=123"),
+    ("https://feeds.example/post?utm=x", "https://feeds.example/post?utm=x"),
+    ("https://feeds.example/post#frag", "https://feeds.example/post"),
+    ("https://feeds.example/post?id=a.b" + "c" * 30, "https://feeds.example/post?id=a.b" + "c" * 30),
+])
+def test_entry_link_drops_secret_looking_params_and_fragment(link, expected):
+    assert chat_rss.entry_link(link, FEED_Q) == expected
+
+
+def test_entry_link_secrets_never_reach_the_result():
+    entries = [{"title": "t", "link": "https://feeds.example/post?id=1&token=SECRET&utm=x#frag",
+                "published": "d"}]
+    result = _run({}, FakeRSS(feeds=["https://feeds.example/x.xml?token=SECRET"], entries=entries))
+    assert result["result"]["entries"][0]["link"] == "https://feeds.example/post?id=1&utm=x"
+    text = json.dumps(result)
+    for leaked in ("SECRET", "token=", "frag"):
+        assert leaked not in text
+
+
+def test_feed_label_survives_a_malformed_port():
+    assert chat_rss.feed_label("https://host:abc/x") == "host/x"
+    assert _run({}, FakeRSS(feeds=["https://host:abc/x"]))["result"]["feed"] == "host/x"
