@@ -4,7 +4,7 @@ third-party content and is wrapped with registry.untrusted()."""
 import re
 import urllib.parse
 
-from chat_tools.registry import Arg, READ, Tool, register, untrusted
+from chat_tools.registry import Arg, READ, Tool, ToolInputError, register, untrusted
 
 _ISSUE_URL_RE = re.compile(r"^https?://([^/]+)/(.+?)/-/issues/(\d+)(?:[/?#].*)?$")
 
@@ -43,7 +43,7 @@ def _read_issue(connector, args):
     elif args.get("project") and args.get("iid"):
         project, iid = args["project"], args["iid"]
     else:
-        raise ValueError("url, or project and iid, is required")
+        raise ToolInputError("url, or project and iid, is required")
     base = f"/projects/{_quote(project)}/issues/{int(iid)}"
     issue = connector.api("GET", base)
     notes = connector.api("GET", f"{base}/notes?per_page=50&sort=asc")

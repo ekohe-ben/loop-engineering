@@ -4,7 +4,7 @@ import json
 import pytest
 
 from chat_tools import registry
-from chat_tools.registry import Arg, Tool, READ, LOCAL
+from chat_tools.registry import Arg, Tool, ToolInputError, READ, LOCAL
 
 
 class FakeConnector:
@@ -91,9 +91,19 @@ def test_handler_exception_becomes_error_without_secret_leak(tools, monkeypatch)
     assert result["error"] == "fake.boom failed (RuntimeError)"
 
 
-def test_value_error_message_is_passed_through(tools):
+def test_plain_value_error_message_is_not_leaked(tools):
+    def leaky(connector, args):
+        raise ValueError("Bearer SECRET-TOKEN-123")
+    registry.register(Tool(name="fake.leaky", description="x", mode=READ,
+                           connector_type="fake", args=(), handler=leaky))
+    result = registry.run("fake.leaky", "{}", load=FakeConnector, list_accounts=accounts("a1"))
+    assert result == {"error": "fake.leaky failed (ValueError)"}
+    assert "SECRET-TOKEN-123" not in json.dumps(result)
+
+
+def test_tool_input_error_message_is_passed_through(tools):
     def bad(connector, args):
-        raise ValueError("url, or project and iid, is required")
+        raise ToolInputError("url, or project and iid, is required")
     registry.register(Tool(name="fake.bad", description="x", mode=READ,
                            connector_type="fake", args=(), handler=bad))
     result = registry.run("fake.bad", "{}", load=FakeConnector, list_accounts=accounts("a1"))
