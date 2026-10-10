@@ -9,7 +9,7 @@ SECRET_FEED = "https://u:p@feeds.example/x.xml?token=SECRET#frag"
 
 class FakeRSS:
     def __init__(self, feeds=None, entries=None):
-        self._feeds = feeds or ["https://a.example/feed.xml", "https://b.example/feed.xml"]
+        self._feeds = ["https://a.example/feed.xml", "https://b.example/feed.xml"] if feeds is None else feeds
         self._entries = entries
         self.fetched = []
 
