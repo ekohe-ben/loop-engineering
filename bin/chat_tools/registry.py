@@ -124,9 +124,9 @@ def execute(tool, args, load=None, list_accounts=None):
         if error:
             return {"error": error}
         result = tool.handler(connector, {k: v for k, v in args.items() if k != "account"})
+        return _cap({"tool": tool.name, "result": result})
     except Exception as exc:  # noqa: BLE001 - never leak exception text (may quote tokens)
         return {"error": f"{tool.name} failed ({type(exc).__name__})"}
-    return _cap({"tool": tool.name, "result": result})
 
 
 def run(name, args_json, load=None, list_accounts=None, session=""):

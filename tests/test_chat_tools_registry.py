@@ -1,3 +1,4 @@
+import datetime
 import json
 
 import pytest
@@ -108,3 +109,12 @@ def test_describe_all_lists_each_tool_with_mode_and_args(tools):
     text = registry.describe_all()
     assert "fake.echo (read): Echo args. Args: text, count (optional)" in text
     assert "fake.local (local)" in text
+
+
+def test_unserialisable_handler_result_becomes_error_not_exception(tools):
+    def dated(connector, args):
+        return {"when": datetime.datetime(2026, 1, 1)}
+    registry.register(Tool(name="fake.dated", description="x", mode=READ,
+                           connector_type="fake", args=(), handler=dated))
+    result = registry.run("fake.dated", "{}", load=FakeConnector, list_accounts=accounts("a1"))
+    assert result == {"error": "fake.dated failed (TypeError)"}
