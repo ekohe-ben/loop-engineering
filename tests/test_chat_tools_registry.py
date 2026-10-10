@@ -91,6 +91,15 @@ def test_handler_exception_becomes_error_without_secret_leak(tools, monkeypatch)
     assert result["error"] == "fake.boom failed (RuntimeError)"
 
 
+def test_value_error_message_is_passed_through(tools):
+    def bad(connector, args):
+        raise ValueError("url, or project and iid, is required")
+    registry.register(Tool(name="fake.bad", description="x", mode=READ,
+                           connector_type="fake", args=(), handler=bad))
+    result = registry.run("fake.bad", "{}", load=FakeConnector, list_accounts=accounts("a1"))
+    assert result["error"] == "url, or project and iid, is required"
+
+
 def test_oversized_result_is_capped_and_flagged(tools):
     big = "x" * (registry.MAX_RESULT_BYTES * 2)
     result = registry.run("fake.echo", json.dumps({"text": big}),

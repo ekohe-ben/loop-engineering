@@ -125,6 +125,8 @@ def execute(tool, args, load=None, list_accounts=None):
             return {"error": error}
         result = tool.handler(connector, {k: v for k, v in args.items() if k != "account"})
         return _cap({"tool": tool.name, "result": result})
+    except ValueError as exc:  # handler ValueErrors are hand-written, secret-free messages
+        return {"error": str(exc)}
     except Exception as exc:  # noqa: BLE001 - never leak exception text (may quote tokens)
         return {"error": f"{tool.name} failed ({type(exc).__name__})"}
 
