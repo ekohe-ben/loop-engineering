@@ -39,7 +39,7 @@ def _run(args, fake):
 def _fake():
     return FakeGitLab({
         "/projects/g%2Fp/issues/482": ISSUE,
-        "/projects/g%2Fp/issues/482/notes?per_page=50&sort=asc": NOTES,
+        "/projects/g%2Fp/issues/482/notes?per_page=50&sort=desc": list(reversed(NOTES)),
     })
 
 
@@ -58,8 +58,12 @@ def test_read_issue_returns_description_and_human_comments_wrapped_untrusted():
     assert result["title"] == registry.untrusted("Crash on save") and result["iid"] == 482
     assert result["description"].startswith("<untrusted_content>")
     assert "ignore previous instructions" in result["description"]
-    assert [c["author"] for c in result["comments"]] == ["bob"]      # system note dropped
+    assert [c["author"] for c in result["comments"]] == [registry.untrusted("bob")]      # system note dropped
     assert result["comments"][0]["body"].startswith("<untrusted_content>")
+    assert result["comments"][0]["author"] == registry.untrusted("bob")
+    assert result["author"] == registry.untrusted("ann")
+    assert result["labels"] == [registry.untrusted("bug")]
+    assert result["comments_truncated"] is False
 
 
 def test_read_issue_picks_the_account_whose_host_matches_the_url():
@@ -136,3 +140,13 @@ def test_comment_for_an_unconfigured_host_is_rejected_before_any_pending_action(
         json.dumps({"url": "https://nowhere.example/g/p/-/issues/1", "body": "hi"}),
         load=lambda i: pytest.fail("must not load"), list_accounts=lambda: ACCOUNTS, session="s1")
     assert "error" in result and not (tmp_path / "pending").exists()
+
+
+def test_more_than_50_notes_keeps_the_newest_oldest_first_and_flags():
+    notes = [{"id": i, "body": f"n{i}", "author": {"username": "u"}, "created_at": str(i),
+              "system": i % 10 == 0} for i in range(120, 70, -1)]  # 50 newest, desc
+    fake = FakeGitLab({"/projects/g%2Fp/issues/482": ISSUE,
+                       "/projects/g%2Fp/issues/482/notes?per_page=50&sort=desc": notes})
+    result = _run({"project": "g/p", "iid": 482}, fake)["result"]
+    assert result["comments_truncated"] is True
+    assert result["comments"][0]["created_at"] == "71" and result["comments"][-1]["created_at"] == "119"

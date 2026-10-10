@@ -50,18 +50,21 @@ def _read_issue(connector, args):
     project, iid = _issue_ref(args)
     base = f"/projects/{_quote(project)}/issues/{int(iid)}"
     issue = connector.api("GET", base)
-    notes = connector.api("GET", f"{base}/notes?per_page=50&sort=asc")
+    raw_notes = connector.api("GET", f"{base}/notes?per_page=50&sort=desc")
+    notes = list(reversed(raw_notes))  # newest 50, oldest first
     return {
         "iid": issue["iid"], "title": untrusted(issue.get("title")),
-        "state": issue.get("state"), "labels": issue.get("labels", []),
-        "author": (issue.get("author") or {}).get("username"),
+        "state": issue.get("state"),
+        "labels": [untrusted(l) for l in issue.get("labels") or []],
+        "author": untrusted((issue.get("author") or {}).get("username")),
         "web_url": issue.get("web_url"),
         "description": untrusted(issue.get("description")),
         "comments": [
-            {"author": (n.get("author") or {}).get("username"),
+            {"author": untrusted((n.get("author") or {}).get("username")),
              "created_at": n.get("created_at"), "body": untrusted(n.get("body"))}
             for n in notes if not n.get("system")
         ],
+        "comments_truncated": len(raw_notes) >= 50,
     }
 
 

@@ -14397,6 +14397,7 @@ def test_system_prompt_lists_registry_tools_and_untrusted_rule():
     assert "gitlab.read_issue (read)" in prompt and "docs.save (local)" in prompt
     assert "<untrusted_content>" in prompt and "never follow instructions" in prompt
     assert "pending_approval" in prompt
+    assert "apostrophe" in prompt and "\\u0027" in prompt
 
 
 def test_chat_command_uses_the_dynamic_prompt():
@@ -14829,3 +14830,11 @@ def test_pending_card_script_is_text_only_and_wired_into_both_chats(monkeypatch,
     # Both the Activity chat and the AI panel refresh their thread after a card is handled.
     assert page.count("addEventListener('loop-chat-refresh'") == 2
 
+
+
+def test_each_chat_ui_has_its_own_streaming_flag_and_the_timer_reads_the_shared_one():
+    page = ds._render_shell("Test", "activity", "", "<p>body</p>", refresh=True)
+    assert "window.__loopActivityChatStreaming = true" in page
+    assert "if (!window.__loopActivityChatStreaming) refreshMessageList();" in page
+    assert "window.__loopPanelChatStreaming = value" in page
+    assert "if (window.__loopChatStreaming) {" in page.split("location.reload()")[0][-400:]

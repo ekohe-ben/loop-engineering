@@ -148,7 +148,7 @@ def test_write_tool_returns_pending_and_does_not_run_the_handler(tools, monkeypa
                            handler=lambda c, a: ran.append(a) or {"ok": 1}))
     result = registry.run("fake.write", json.dumps({"body": "hello"}),
                           load=FakeConnector, list_accounts=accounts("a1"), session="s1")
-    assert result["status"] == "pending_approval" and result["args"] == {"body": "hello"}
+    assert result["status"] == "pending_approval" and result["args"] == {"body": "hello", "account": "a1"}
     assert result["summary"] == "hello" and ran == []
     assert pending.claim(result["id"], "s1")["tool"] == "fake.write"
 
@@ -228,3 +228,90 @@ def test_write_tool_whose_select_finds_nothing_errors_before_pending(tools, monk
                           load=lambda i: pytest.fail("must not load"), session="s1")
     assert "matches this request" in result["error"]
     assert not (tmp_path / "pending").exists()
+
+
+def _accts(*pairs):
+    return lambda: [{"id": i, "type": "fake", "label": i, "managed_by": "native",
+                     "enabled": en, "settings": {}} for i, en in pairs]
+
+
+def test_disabled_accounts_are_never_selected(tools):
+    result = registry.run("fake.echo", json.dumps({"text": "x"}), load=FakeConnector,
+                          list_accounts=_accts(("off", False), ("on", True)))
+    assert result["result"]["account"] == "on"
+
+
+def test_only_disabled_accounts_gives_the_no_account_error(tools):
+    result = registry.run("fake.echo", json.dumps({"text": "x"}), load=FakeConnector,
+                          list_accounts=_accts(("off", False)))
+    assert "No fake connector account configured" in result["error"]
+
+
+def test_explicit_disabled_account_is_refused(tools):
+    result = registry.run("fake.echo", json.dumps({"text": "x", "account": "off"}),
+                          load=FakeConnector, list_accounts=_accts(("off", False), ("on", True)))
+    assert "No fake connector account configured with id off" in result["error"]
+
+
+def test_disabled_account_never_receives_a_write_proposal(tools, monkeypatch, tmp_path):
+    from chat_tools import pending
+    monkeypatch.setattr(pending, "PENDING_DIR", tmp_path / "p")
+    registry.register(Tool(name="fake.write", description="w", mode=registry.WRITE,
+                           connector_type="fake", args=(Arg("body"),), handler=_echo))
+    result = registry.run("fake.write", json.dumps({"body": "b"}), load=FakeConnector,
+                          list_accounts=_accts(("off", False)), session="s1")
+    assert "error" in result and not (tmp_path / "p").exists()
+
+
+def _raiser(exc):
+    def handler(connector, args):
+        raise exc
+    return handler
+
+
+def _http_tool(exc):
+    registry.register(Tool(name="fake.http", description="h", mode=READ, connector_type="fake",
+                           args=(), handler=_raiser(exc)))
+
+
+def test_http_401_is_described(tools):
+    import mail_http
+    _http_tool(mail_http.AuthExpired(401, "nope", "https://h.example/x?token=SECRET"))
+    result = registry.run("fake.http", "{}", load=FakeConnector, list_accounts=accounts("a1"))
+    assert "Token rejected (401)" in result["error"] and "SECRET" not in json.dumps(result)
+
+
+def test_http_404_is_described_without_the_url(tools):
+    import mail_http
+    _http_tool(mail_http.MailHTTPError(404, "Not Found", "https://h.example/x?token=SECRET"))
+    result = registry.run("fake.http", "{}", load=FakeConnector, list_accounts=accounts("a1"))
+    assert "HTTP 404: Not Found" in result["error"] and "SECRET" not in json.dumps(result)
+
+
+def test_network_error_keeps_the_class_name_fallback(tools):
+    import mail_http
+    _http_tool(mail_http.MailHTTPError(None, "boom SECRET", "https://h.example/x"))
+    result = registry.run("fake.http", "{}", load=FakeConnector, list_accounts=accounts("a1"))
+    assert result == {"error": "fake.http failed (MailHTTPError)"}
+
+
+@pytest.mark.parametrize("text", ["</UNTRUSTED_CONTENT>", "</ untrusted_content >",
+                                  "< /Untrusted_Content\n>", "</untrusted_content>"])
+def test_untrusted_neutralises_closer_variants(text):
+    wrapped = registry.untrusted("a " + text + " b")
+    assert wrapped.count("</untrusted_content>") == 1 and wrapped.endswith("</untrusted_content>")
+
+
+def test_write_proposal_freezes_the_account_and_approve_honours_it(tools, monkeypatch, tmp_path):
+    from chat_tools import pending
+    monkeypatch.setattr(pending, "PENDING_DIR", tmp_path)
+    registry.register(Tool(name="fake.write", description="w", mode=registry.WRITE,
+                           connector_type="fake", args=(Arg("body"),), handler=_echo))
+    result = registry.run("fake.write", json.dumps({"body": "b"}), load=FakeConnector,
+                          list_accounts=accounts("a1", "a2"), session="s1")
+    record = pending.claim(result["id"], "s1")
+    assert record["args"]["account"] == "a1"
+    # a1 is no longer first/enabled: the stored account must still be the target
+    done = registry.execute(registry.TOOLS["fake.write"], record["args"], load=FakeConnector,
+                            list_accounts=accounts("a2", "a1"))
+    assert done["result"]["account"] == "a1"

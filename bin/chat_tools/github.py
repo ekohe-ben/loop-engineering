@@ -14,30 +14,41 @@ def _repo(args):
     return repo
 
 
-def _comments(connector, repo, number):
-    items = connector.api("GET", f"/repos/{repo}/issues/{int(number)}/comments?per_page=50")
-    return [{"author": (c.get("user") or {}).get("login"), "created_at": c.get("created_at"),
-             "body": untrusted(c.get("body"))} for c in items]
+def _comments(connector, repo, number, total):
+    """Newest 50 comments, oldest first. The endpoint is ascending-only, so
+    with more than 50 the last page is requested instead of the first."""
+    total = total if isinstance(total, int) and not isinstance(total, bool) else 0
+    path = f"/repos/{repo}/issues/{int(number)}/comments?per_page=50"
+    if total > 50:
+        path += f"&page={-(-total // 50)}"
+    items = connector.api("GET", path)
+    return [{"author": untrusted((c.get("user") or {}).get("login")), "created_at": c.get("created_at"),
+             "body": untrusted(c.get("body"))} for c in items], total > 50
 
 
 def _read_issue(connector, args):
     repo = _repo(args)
     issue = connector.api("GET", f"/repos/{repo}/issues/{int(args['number'])}")
+    comments, truncated = _comments(connector, repo, args["number"], issue.get("comments"))
     return {"number": issue["number"], "title": untrusted(issue.get("title")),
-            "state": issue.get("state"), "author": (issue.get("user") or {}).get("login"),
+            "state": untrusted(issue.get("state")),
+            "labels": [untrusted(l.get("name") if isinstance(l, dict) else l)
+                       for l in issue.get("labels") or []],
+            "author": untrusted((issue.get("user") or {}).get("login")),
             "html_url": issue.get("html_url"), "body": untrusted(issue.get("body")),
-            "comments": _comments(connector, repo, args["number"])}
+            "comments": comments, "comments_truncated": truncated}
 
 
 def _read_pr(connector, args):
     repo = _repo(args)
     pr = connector.api("GET", f"/repos/{repo}/pulls/{int(args['number'])}")
-    return {"number": pr["number"], "title": untrusted(pr.get("title")), "state": pr.get("state"),
-            "merged": bool(pr.get("merged")), "author": (pr.get("user") or {}).get("login"),
+    comments, truncated = _comments(connector, repo, args["number"], pr.get("comments"))
+    return {"number": pr["number"], "title": untrusted(pr.get("title")), "state": untrusted(pr.get("state")),
+            "merged": bool(pr.get("merged")), "author": untrusted((pr.get("user") or {}).get("login")),
             "html_url": pr.get("html_url"), "body": untrusted(pr.get("body")),
             "head": (pr.get("head") or {}).get("ref"), "base": (pr.get("base") or {}).get("ref"),
             "changed_files": pr.get("changed_files"),
-            "comments": _comments(connector, repo, args["number"])}
+            "comments": comments, "comments_truncated": truncated}
 
 
 def _comment(connector, args):

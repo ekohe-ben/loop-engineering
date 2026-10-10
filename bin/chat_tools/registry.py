@@ -4,6 +4,7 @@ action the chat's `chat-tool call <tool> '<json>'` command can run against a
 connector account. `run()` never raises: every failure becomes {"error": ...}
 with no tokens or secret-bearing URLs in it."""
 import json
+import re
 from dataclasses import dataclass
 
 import connectors_config
@@ -14,6 +15,7 @@ LOCAL = "local"
 MAX_RESULT_BYTES = 20000
 _MARKER_OPEN = "<untrusted_content>"
 _MARKER_CLOSE = "</untrusted_content>"
+_CLOSER_RE = re.compile(r"<\s*/\s*untrusted_content\s*>", re.IGNORECASE)
 
 TOOLS = {}
 
@@ -55,7 +57,7 @@ def _load_all():
 def untrusted(text):
     """Wraps third-party text so the model treats it as data. A closing marker
     inside the text is defanged so it cannot end the wrapper early."""
-    safe = str(text or "").replace(_MARKER_CLOSE, "</untrusted_content_>")
+    safe = _CLOSER_RE.sub("</untrusted_content_>", str(text or ""))
     return f"{_MARKER_OPEN}{safe}{_MARKER_CLOSE}"
 
 
@@ -101,7 +103,8 @@ def _select_account(tool, args, list_accounts):
         return None, None
     if list_accounts is None:
         list_accounts = connectors_config.list_accounts
-    candidates = [a for a in list_accounts() if a["type"] == tool.connector_type]
+    candidates = [a for a in list_accounts() if a["type"] == tool.connector_type
+                  and a.get("enabled", True)]
     wanted = args.get("account")
     if wanted:
         candidates = [a for a in candidates if a["id"] == wanted]
@@ -142,6 +145,13 @@ def execute(tool, args, load=None, list_accounts=None):
     except ToolInputError as exc:  # hand-written, secret-free by contract
         return {"error": str(exc)}
     except Exception as exc:  # noqa: BLE001 - never leak exception text (may quote tokens)
+        import mail_http
+        from connectors.base import describe_http_error
+        # Only a real HTTP response (status + server body) is described; network
+        # errors and everything else keep the class-name-only fallback.
+        if isinstance(exc, mail_http.AuthExpired) or (
+                isinstance(exc, mail_http.MailHTTPError) and exc.status is not None):
+            return {"error": describe_http_error(exc)}
         return {"error": f"{tool.name} failed ({type(exc).__name__})"}
 
 
@@ -159,11 +169,13 @@ def run(name, args_json, load=None, list_accounts=None, session=""):
         if not session:
             return {"error": f"{tool.name} needs a chat session to be approved in"}
         try:
-            _, error = _select_account(tool, args, list_accounts)
+            account_id, error = _select_account(tool, args, list_accounts)
         except Exception as exc:  # noqa: BLE001 - never leak exception text
             error = f"{tool.name} failed ({type(exc).__name__})"
         if error:
             return {"error": error}
+        if account_id:
+            args = dict(args, account=account_id)  # freeze the target for approve
         from chat_tools import pending
         summary = next((str(v)[:80] for v in args.values() if isinstance(v, str)), "")
         return {"status": "pending_approval", "tool": tool.name, "summary": summary,

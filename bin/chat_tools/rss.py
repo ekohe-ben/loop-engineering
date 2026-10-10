@@ -76,7 +76,7 @@ def _read_feed(connector, args):
     return {"feed": feed_label(url), "index": index + 1,
             "feeds": [feed_label(f) for f in feeds],
             "entries": [{"title": untrusted(e["title"]), "link": entry_link(e["link"], url),
-                         "published": e["published"]} for e in entries]}
+                         "published": untrusted(e["published"])} for e in entries]}
 
 
 register(Tool(

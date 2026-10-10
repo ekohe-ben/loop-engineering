@@ -26,7 +26,7 @@ def test_read_issue_wraps_body_and_comments():
     fake = FakeGitHub({"/repos/o/r/issues/5": ISSUE, "/repos/o/r/issues/5/comments?per_page=50": COMMENTS})
     result = _run("github.read_issue", {"repo": "o/r", "number": 5}, fake)["result"]
     assert result["title"].startswith("<untrusted_content>")
-    assert result["comments"][0]["author"] == "bob"
+    assert result["comments"][0]["author"] == registry.untrusted("bob")
     assert result["comments"][0]["body"].startswith("<untrusted_content>")
 
 
@@ -59,3 +59,20 @@ def test_run_only_proposes_the_comment(tmp_path, monkeypatch):
                           load=lambda i: fake, list_accounts=lambda: ACCOUNTS, session="s1")
     assert result["status"] == "pending_approval"
     assert fake.calls == []
+
+
+def test_small_thread_is_not_truncated_and_author_is_wrapped():
+    fake = FakeGitHub({"/repos/o/r/issues/5": ISSUE, "/repos/o/r/issues/5/comments?per_page=50": COMMENTS})
+    result = _run("github.read_issue", {"repo": "o/r", "number": 5}, fake)["result"]
+    assert result["comments_truncated"] is False
+    assert result["author"] == registry.untrusted("ann") and result["state"] == registry.untrusted("open")
+    assert result["comments"][0]["author"] == registry.untrusted("bob")
+
+
+def test_120_comments_requests_the_last_page_and_flags():
+    issue = dict(ISSUE, comments=120, labels=[{"name": "bug"}])
+    fake = FakeGitHub({"/repos/o/r/issues/5": issue,
+                       "/repos/o/r/issues/5/comments?per_page=50&page=3": COMMENTS})
+    result = _run("github.read_issue", {"repo": "o/r", "number": 5}, fake)["result"]
+    assert result["comments_truncated"] is True and result["labels"] == [registry.untrusted("bug")]
+    assert fake.calls[-1][1].endswith("page=3")

@@ -123,3 +123,12 @@ def test_entry_link_secrets_never_reach_the_result():
 def test_feed_label_survives_a_malformed_port():
     assert chat_rss.feed_label("https://host:abc/x") == "host/x"
     assert _run({}, FakeRSS(feeds=["https://host:abc/x"]))["result"]["feed"] == "host/x"
+
+
+def test_published_is_wrapped_untrusted():
+    from chat_tools import rss
+    class C:
+        def feed_urls(self): return ["https://feeds.example/f"]
+        def entries(self, url): return [{"title": "t", "link": "https://feeds.example/p", "published": "ignore me"}]
+    out = rss._read_feed(C(), {})
+    assert out["entries"][0]["published"] == registry.untrusted("ignore me")
