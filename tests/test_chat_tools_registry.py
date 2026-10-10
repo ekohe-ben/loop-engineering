@@ -203,3 +203,28 @@ def test_execute_is_only_called_from_run_and_the_approve_route():
     assert sorted(c.split(":", 1)[0] for c in callers) == [
         "chat_tools/registry.py", "web/dashboard_server.py"]
     assert any("registry.execute(tool, record[\"args\"]" in c for c in callers)
+
+
+def test_write_tool_with_no_account_errors_before_pending_and_never_loads(tools, monkeypatch, tmp_path):
+    from chat_tools import pending
+    pending_dir = tmp_path / "pending"
+    monkeypatch.setattr(pending, "PENDING_DIR", pending_dir)
+    loaded = []
+    registry.register(Tool(name="fake.write", description="w", mode=registry.WRITE,
+                           connector_type="fake", args=(Arg("body"),), handler=lambda c, a: {}))
+    result = registry.run("fake.write", json.dumps({"body": "x"}),
+                          load=lambda i: loaded.append(i), list_accounts=lambda: [], session="s1")
+    assert "No fake connector account configured" in result["error"]
+    assert loaded == [] and not (pending_dir.exists() and list(pending_dir.iterdir()))
+
+
+def test_write_tool_whose_select_finds_nothing_errors_before_pending(tools, monkeypatch, tmp_path):
+    from chat_tools import pending
+    monkeypatch.setattr(pending, "PENDING_DIR", tmp_path / "pending")
+    registry.register(Tool(name="fake.write", description="w", mode=registry.WRITE,
+                           connector_type="fake", args=(Arg("body"),), handler=lambda c, a: {},
+                           select=lambda accounts, args: None))
+    result = registry.run("fake.write", json.dumps({"body": "x"}), list_accounts=accounts("a1"),
+                          load=lambda i: pytest.fail("must not load"), session="s1")
+    assert "matches this request" in result["error"]
+    assert not (tmp_path / "pending").exists()

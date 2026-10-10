@@ -126,3 +126,13 @@ def test_comment_is_a_write_tool_so_run_only_proposes_it(tmp_path, monkeypatch):
     assert registry.TOOLS["gitlab.comment"].mode == registry.WRITE
     assert result["status"] == "pending_approval"
     assert fake.calls == []
+
+
+def test_comment_for_an_unconfigured_host_is_rejected_before_any_pending_action(tmp_path, monkeypatch):
+    from chat_tools import pending
+    monkeypatch.setattr(pending, "PENDING_DIR", tmp_path / "pending")
+    result = registry.run(
+        "gitlab.comment",
+        json.dumps({"url": "https://nowhere.example/g/p/-/issues/1", "body": "hi"}),
+        load=lambda i: pytest.fail("must not load"), list_accounts=lambda: ACCOUNTS, session="s1")
+    assert "error" in result and not (tmp_path / "pending").exists()

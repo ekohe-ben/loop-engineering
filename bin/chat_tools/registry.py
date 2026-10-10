@@ -94,11 +94,11 @@ def _validate(tool, raw):
     return args, None
 
 
-def _resolve(tool, args, load, list_accounts):
+def _select_account(tool, args, list_accounts):
+    """Picks the connector account id (no secret is read). Returns
+    (account_id, error); account_id is None for tools without a connector."""
     if tool.connector_type is None:
         return None, None
-    if load is None:
-        load = connectors_config.load_connector
     if list_accounts is None:
         list_accounts = connectors_config.list_accounts
     candidates = [a for a in list_accounts() if a["type"] == tool.connector_type]
@@ -111,7 +111,16 @@ def _resolve(tool, args, load, list_accounts):
     account_id = tool.select(candidates, args) if tool.select else None
     if tool.select and account_id is None:
         return None, f"No {tool.connector_type} connector account matches this request"
-    return load(account_id or candidates[0]["id"]), None
+    return account_id or candidates[0]["id"], None
+
+
+def _resolve(tool, args, load, list_accounts):
+    account_id, error = _select_account(tool, args, list_accounts)
+    if error or account_id is None:
+        return None, error
+    if load is None:
+        load = connectors_config.load_connector
+    return load(account_id), None
 
 
 def _cap(payload):
@@ -149,6 +158,12 @@ def run(name, args_json, load=None, list_accounts=None, session=""):
         # only the dashboard's browser-only approve route can run.
         if not session:
             return {"error": f"{tool.name} needs a chat session to be approved in"}
+        try:
+            _, error = _select_account(tool, args, list_accounts)
+        except Exception as exc:  # noqa: BLE001 - never leak exception text
+            error = f"{tool.name} failed ({type(exc).__name__})"
+        if error:
+            return {"error": error}
         from chat_tools import pending
         summary = next((str(v)[:80] for v in args.values() if isinstance(v, str)), "")
         return {"status": "pending_approval", "tool": tool.name, "summary": summary,
