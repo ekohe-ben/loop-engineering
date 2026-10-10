@@ -936,5 +936,14 @@
   "Raise": "À soulever",
   "From last time": "Depuis la dernière fois",
   "Highlights": "Points forts",
-  "Live {loop}": "{loop} en direct"
+  "Live {loop}": "{loop} en direct",
+  "Approve": "Approuver",
+  "Reject": "Rejeter",
+  "Waiting for your approval": "En attente de votre approbation",
+  "This action expired or was already handled.": "Cette action a expiré ou a déjà été traitée.",
+  "Unknown action.": "Action inconnue.",
+  "{tool} failed: {error}": "{tool} a échoué : {error}",
+  "Approved and done: {tool} {summary}": "Approuvé et exécuté : {tool} {summary}",
+  "Approved.": "Approuvé.",
+  "Rejected.": "Rejeté."
 }

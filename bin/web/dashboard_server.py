@@ -1039,6 +1039,10 @@ def _run_chat_job(reply_key, prompt, messages_path=None, session_id=None):
         tool_events = []
         for line in process.stdout:
             for tool_event in chat_tool_events_in_stream_line(line):
+                if tool_event["kind"] == "pending":
+                    tool_event = _verified_pending_event(tool_event, session_id)
+                    if tool_event is None:
+                        continue
                 _chat_job_event(reply_key, tool_event)
                 tool_events.append(tool_event)
             if any(a in _CHAT_MUTATING_ACTIONS for a in chat_tool_actions_in_stream_line(line)):
@@ -1077,6 +1081,60 @@ def _run_chat_job(reply_key, prompt, messages_path=None, session_id=None):
         else:
             append_unified_log("chat-assistant", f"reply ({ai_cli_name})", body=finish_text)
         _chat_job_finish(reply_key, error=finish_error, final_text=finish_text)
+
+
+def _verified_pending_event(event, session_id):
+    """A `pending` stream event rebuilt from the stored pending record, or
+    None when this session has no live record with that id. The stream's
+    copy comes from tool-result text, which third-party output could forge,
+    so the card and the stored message only ever show what approve would
+    actually run."""
+    from chat_tools import pending
+    pending_id = event.get("pending_id")
+    if not isinstance(pending_id, str):
+        return None
+    record = pending.lookup(pending_id, session_id or "")
+    if record is None:
+        return None
+    return {"kind": "pending", "id": event.get("id", ""), "pending_id": pending_id,
+            "tool": record.get("tool", ""), "summary": record.get("summary", ""),
+            "args": record.get("args", {})}
+
+
+def _chat_approve(pending_id, session, messages_path=None):
+    """POST /activity/chat/approve: runs a pending write with its STORED args
+    (never browser-supplied ones). claim() makes it single use and bound to
+    the session that proposed it; the outcome is posted to that session as a
+    short loop message. Nothing reachable from chat-tool calls this."""
+    from chat_tools import pending, registry
+    if messages_path is None:
+        messages_path = MESSAGES_PATH
+    record = pending.claim(pending_id, session)
+    if record is None:
+        return {"ok": False, "error": _t("This action expired or was already handled.")}
+    registry._load_all()
+    tool = registry.TOOLS.get(record.get("tool"))
+    if tool is None or tool.mode != registry.WRITE or not isinstance(record.get("args"), dict):
+        return {"ok": False, "error": _t("Unknown action.")}
+    result = registry.execute(tool, record["args"])
+    if "error" in result:
+        text = _t("{tool} failed: {error}", tool=tool.name, error=result["error"])
+    else:
+        text = _t("Approved and done: {tool} {summary}", tool=tool.name, summary=record.get("summary", ""))
+    append_unified_log("chat-tool", f"approve {tool.name}",
+                       body=f"error: {result['error']}" if "error" in result else "ok")
+    append_message("loop", text, messages_path, session=session)
+    if "error" in result:
+        return {"ok": False, "error": text, "result": result}
+    return {"ok": True, "result": result}
+
+
+def _chat_reject(pending_id, session):
+    """POST /activity/chat/reject: drops this session's pending write unrun."""
+    from chat_tools import pending
+    if pending.discard(pending_id, session):
+        return {"ok": True}
+    return {"ok": False, "error": _t("This action expired or was already handled.")}
 
 
 _CHAT_TITLE_TIMEOUT_SECONDS = 60
@@ -5570,6 +5628,16 @@ html .chat-page.is-empty .activity-composer {{
 .tool-chip-ok {{ background: color-mix(in srgb, var(--md-primary) 14%, var(--md-surface)); }}
 .tool-chip-err {{ background: color-mix(in srgb, var(--md-error) 16%, var(--md-surface)); }}
 .tool-chip-run {{ opacity: 0.7; }}
+.pending-card {{ display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.5rem; padding: 0.75rem; border-radius: 12px; border: 1px solid var(--md-outline-variant); background: var(--md-surface-container); }}
+.pending-card-head {{ display: flex; align-items: center; gap: 0.4rem; font-weight: 500; }}
+.pending-card-head .material-symbols-outlined {{ font-size: 1.1rem; color: var(--md-primary); }}
+.pending-card-tool {{ font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8rem; }}
+.pending-card-summary {{ font-size: 0.85rem; color: var(--md-on-surface-variant); overflow-wrap: anywhere; }}
+.pending-card-args {{ margin: 0; max-height: 16rem; overflow: auto; padding: 0.5rem; border-radius: 8px; background: var(--md-surface-container-high); font-size: 0.75rem; white-space: pre-wrap; overflow-wrap: anywhere; }}
+.pending-card-actions {{ display: flex; flex-wrap: wrap; gap: 0.5rem; }}
+.pending-card-actions .material-symbols-outlined {{ font-size: 1rem; }}
+.pending-card-status {{ font-size: 0.85rem; color: var(--md-on-surface-variant); }}
+.pending-card-status:empty {{ display: none; }}
 .chat-toolbar {{ position: fixed; top: calc(var(--shell-top) + 0.75rem); right: calc(var(--shell-right) + 0.75rem); z-index: 85; display: flex; gap: 0.5rem; }}
 .chat-new-form {{ margin: 0; display: inline-flex; }}
 .chat-page.is-empty .chat-new-form {{ display: none; }}
@@ -7509,9 +7577,11 @@ window.__loopTextReveal = function(onRender) {
 # bubble element, or a function returning it (called on the first tool call,
 # so the bubble only replaces the thinking indicator once there is something
 # to show). Text goes in via textContent only - tool names and summaries are
-# model/third-party text. `pending` (and any other kind) is ignored here.
+# model/third-party text. A `pending` event adds its approval card (see
+# _CHAT_PENDING_CARD_JS) under the chips; `getSession` returns the chat's
+# current session id for the card's buttons.
 _CHAT_TOOL_CHIPS_JS = """
-window.__loopToolChips = function(host) {
+window.__loopToolChips = function(host, getSession) {
   var chips = {};
   var row = null;
   return function(ev) {
@@ -7534,19 +7604,23 @@ window.__loopToolChips = function(host) {
       row.appendChild(chip);
     } else if (ev.kind === 'result' && chip) {
       chip.className = 'tool-chip ' + (ev.ok ? 'tool-chip-ok' : 'tool-chip-err');
+    } else if (ev.kind === 'pending' && row && window.__loopPendingCard) {
+      row.parentNode.insertBefore(window.__loopPendingCard(ev, getSession ? getSession() : ''), row.nextSibling);
     }
   };
 };
 """
 
 
-def chat_tool_chips_html(tools):
+def chat_tool_chips_html(tools, session=None):
     """Chips for a stored loop message's `tools` list ([{name, summary, ok}]),
     mirroring what window.__loopToolChips shows live. ok: True/False/None
-    maps to ok/err/run."""
+    maps to ok/err/run. A call with a `pending` write also gets its approval
+    card, but only while `session` still has a live pending record for it -
+    the card shows that stored record, never the message's own copy."""
     if not tools:
         return ""
-    chips = []
+    chips, cards = [], []
     for tool in tools:
         if not isinstance(tool, dict):
             continue
@@ -7554,9 +7628,142 @@ def chat_tool_chips_html(tools):
         summary = f" \u00b7 {html.escape(str(tool.get('summary') or ''))}" if tool.get("summary") else ""
         chips.append(f'<span class="tool-chip tool-chip-{state}">'
                      f'{html.escape(str(tool.get("name", "")))}{summary}</span>')
+        stored = tool.get("pending")
+        if session and isinstance(stored, dict) and isinstance(stored.get("pending_id"), str):
+            from chat_tools import pending
+            record = pending.lookup(stored["pending_id"], session)
+            if record is not None:
+                cards.append(chat_pending_card_html(stored["pending_id"], session, record))
     if not chips:
         return ""
-    return f'<div class="tool-chips">{"".join(chips)}</div>'
+    return f'<div class="tool-chips">{"".join(chips)}</div>{"".join(cards)}'
+
+
+def chat_pending_card_html(pending_id, session, record):
+    """Server-rendered twin of window.__loopPendingCard: the approval card for
+    one stored pending record. Everything in it is escaped - tool, summary
+    and args are model or third-party text."""
+    tool = html.escape(str(record.get("tool", "")))
+    summary = str(record.get("summary") or "")
+    summary_html = f"<div class='pending-card-summary'>{html.escape(summary)}</div>" if summary else ""
+    args = html.escape(json.dumps(record.get("args", {}), indent=2, ensure_ascii=False))
+    return (
+        f"<div class='pending-card' data-pending-id=\"{html.escape(pending_id, quote=True)}\""
+        f" data-pending-session=\"{html.escape(session, quote=True)}\">"
+        "<div class='pending-card-head'><span class='material-symbols-outlined' aria-hidden='true'>schedule</span>"
+        f"<span>{html.escape(_t('Waiting for your approval'))}</span></div>"
+        f"<div class='pending-card-tool'>{tool}</div>{summary_html}"
+        f"<pre class='pending-card-args'>{args}</pre>"
+        "<div class='pending-card-actions'>"
+        "<button type='button' class='btn btn-primary' data-pending-approve>"
+        f"<span class='material-symbols-outlined' aria-hidden='true'>check</span>{html.escape(_t('Approve'))}</button>"
+        "<button type='button' class='btn btn-neutral' data-pending-reject>"
+        f"<span class='material-symbols-outlined' aria-hidden='true'>close</span>{html.escape(_t('Reject'))}</button>"
+        "</div>"
+        "<div class='pending-card-status' aria-live='polite'></div>"
+        "</div>"
+    )
+
+
+# The approval card for a pending write (see chat_pending_card_html, its
+# server-rendered twin), plus one delegated click handler for every card on
+# the page, live or re-rendered. Built with textContent/JSON.stringify only:
+# tool, summary and args are model or third-party text. The buttons send just
+# the id and session - the server runs the args it stored. A handled card
+# fires a bubbling `loop-chat-refresh` event so the chat holding it reloads
+# its thread. __PLACEHOLDERS__ are swapped for json.dumps(_t(...)) at render
+# time by _chat_pending_card_js.
+_CHAT_PENDING_CARD_JS = """
+window.__loopPendingCard = function(ev, session) {
+  function el(tag, cls, text) {
+    var node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text) node.textContent = text;
+    return node;
+  }
+  function icon(name) {
+    var node = el('span', 'material-symbols-outlined', name);
+    node.setAttribute('aria-hidden', 'true');
+    return node;
+  }
+  var card = el('div', 'pending-card');
+  card.setAttribute('data-pending-id', String(ev.pending_id || ''));
+  card.setAttribute('data-pending-session', String(session || ''));
+  var head = el('div', 'pending-card-head');
+  head.appendChild(icon('schedule'));
+  head.appendChild(el('span', '', __WAITING__));
+  card.appendChild(head);
+  card.appendChild(el('div', 'pending-card-tool', String(ev.tool || '')));
+  if (ev.summary) card.appendChild(el('div', 'pending-card-summary', String(ev.summary)));
+  card.appendChild(el('pre', 'pending-card-args', JSON.stringify(ev.args || {}, null, 2)));
+  var actions = el('div', 'pending-card-actions');
+  var approve = el('button', 'btn btn-primary');
+  approve.type = 'button';
+  approve.setAttribute('data-pending-approve', '');
+  approve.appendChild(icon('check'));
+  approve.appendChild(document.createTextNode(__APPROVE__));
+  var reject = el('button', 'btn btn-neutral');
+  reject.type = 'button';
+  reject.setAttribute('data-pending-reject', '');
+  reject.appendChild(icon('close'));
+  reject.appendChild(document.createTextNode(__REJECT__));
+  actions.appendChild(approve);
+  actions.appendChild(reject);
+  card.appendChild(actions);
+  var status = el('div', 'pending-card-status');
+  status.setAttribute('aria-live', 'polite');
+  card.appendChild(status);
+  return card;
+};
+if (!window.__loopPendingCardClicks) {
+  window.__loopPendingCardClicks = true;
+  document.addEventListener('click', function(ev) {
+    var target = ev.target;
+    var button = target && target.closest ? target.closest('[data-pending-approve], [data-pending-reject]') : null;
+    if (!button) return;
+    var card = button.closest('.pending-card');
+    if (!card || card.getAttribute('data-busy') === '1') return;
+    var approving = button.hasAttribute('data-pending-approve');
+    var status = card.querySelector('.pending-card-status');
+    var buttons = card.querySelectorAll('.pending-card-actions button');
+    var token = document.querySelector("input[name='csrf_token']");
+    var params = new URLSearchParams();
+    params.set('id', card.getAttribute('data-pending-id') || '');
+    params.set('session', card.getAttribute('data-pending-session') || '');
+    params.set('csrf_token', token ? token.value : '');
+    card.setAttribute('data-busy', '1');
+    buttons.forEach(function(b) { b.disabled = true; });
+    fetch(approving ? '/activity/chat/approve' : '/activity/chat/reject', { method: 'POST', body: params })
+      .then(function(response) { return response.json(); })
+      .then(function(data) {
+        var ok = data && data.ok;
+        if (status) status.textContent = ok ? (approving ? __APPROVED__ : __REJECTED__) : ((data && data.error) || __ERROR__);
+        card.classList.add('is-handled');
+        var actions = card.querySelector('.pending-card-actions');
+        if (actions) actions.remove();
+        card.dispatchEvent(new CustomEvent('loop-chat-refresh', { bubbles: true }));
+      })
+      .catch(function() {
+        if (status) status.textContent = __ERROR__;
+        card.removeAttribute('data-busy');
+        buttons.forEach(function(b) { b.disabled = false; });
+      });
+  });
+}
+"""
+
+
+def _chat_pending_card_js():
+    """_CHAT_PENDING_CARD_JS with this request's translated strings."""
+    return (
+        _CHAT_PENDING_CARD_JS
+        .replace("__WAITING__", json.dumps(_t("Waiting for your approval")))
+        .replace("__APPROVE__", json.dumps(_t("Approve")))
+        .replace("__REJECT__", json.dumps(_t("Reject")))
+        .replace("__APPROVED__", json.dumps(_t("Approved.")))
+        .replace("__REJECTED__", json.dumps(_t("Rejected.")))
+        .replace("__ERROR__", json.dumps(_t("Something went wrong - try again.")))
+    )
 
 
 # Client side of the AI side panel (see _ai_panel_html). A plain string,
@@ -7791,6 +7998,10 @@ _AI_PANEL_SCRIPT = """
     input.focus();
   });
 
+  // An approval card was handled: reload the thread for the follow-up
+  // message - unless a reply is still streaming, which reloads it when done.
+  thread.addEventListener('loop-chat-refresh', function() { if (!busy) loadThread(true); });
+
   thread.addEventListener('click', function(ev) {
     var copyBtn = ev.target.closest('[data-copy-message]');
     if (!copyBtn) return;
@@ -7866,7 +8077,8 @@ _AI_PANEL_SCRIPT = """
           accumulated += JSON.parse(ev.data);
           reveal.set(accumulated);
         });
-        var onTool = window.__loopToolChips(function() { return replyBubble().parentNode; });
+        var onTool = window.__loopToolChips(function() { return replyBubble().parentNode; },
+                                            function() { return session; });
         source.addEventListener('tool', function(ev) {
           try { onTool(JSON.parse(ev.data)); } catch (e) {}
         });
@@ -8130,6 +8342,7 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
 <style>{_STYLE}</style>
 <script>{_TEXT_REVEAL_SCRIPT}
 {_CHAT_TOOL_CHIPS_JS}
+{_chat_pending_card_js()}
 (function() {{
   if (localStorage.getItem('loop-dashboard-sidebar') === '1') {{
     document.documentElement.classList.add('collapsed');
@@ -8501,6 +8714,13 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
       editInput.setSelectionRange(editInput.value.length, editInput.value.length);
     }}
 
+    // An approval card was handled (see _CHAT_PENDING_CARD_JS): reload the
+    // thread for its follow-up message - unless a reply is still streaming,
+    // whose own done handler reloads it.
+    list.addEventListener('loop-chat-refresh', function() {{
+      if (!window.__loopChatStreaming) refreshMessageList();
+    }});
+
     list.addEventListener('click', function(ev) {{
       var copyBtn = ev.target.closest('[data-copy-message]');
       if (copyBtn) {{
@@ -8612,7 +8832,9 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
           accumulated += JSON.parse(ev.data);
           reveal.set(accumulated);
         }});
-        var onTool = window.__loopToolChips(pending.host);
+        var onTool = window.__loopToolChips(pending.host, function() {{
+          return sessionInput ? sessionInput.value : '';
+        }});
         source.addEventListener('tool', function(ev) {{
           try {{ onTool(JSON.parse(ev.data)); }} catch (e) {{}}
         }});
@@ -9179,7 +9401,7 @@ def render_activity_messages_fragment(messages_path=None, session_id=None):
             "<div class='message-body'>"
             f"<div class='message-bubble {'message-bubble-user' if is_user else 'message-bubble-loop'}'>"
             f"<div class='message-meta'>{who_html}<span class='message-time'>{html.escape(relative_time)}</span></div>"
-            f"{chat_tool_chips_html(m.get('tools')) if not is_user else ''}"
+            f"{chat_tool_chips_html(m.get('tools'), session=session_id) if not is_user else ''}"
             f"<div class='message-text markdown' data-raw=\"{html.escape(text, quote=True)}\">{render_markdown(text)}</div>"
             "</div>"
             "<div class='message-actions'>"
@@ -15812,6 +16034,23 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.send_header("Location", "/")
             self.send_header("Content-Length", "0")
             self.end_headers()
+            return
+
+        if self.path in ("/activity/chat/approve", "/activity/chat/reject"):
+            if not self._csrf_ok(body):
+                self._forbidden()
+                return
+            # Only the id and session are read from the form: approve runs
+            # the args stored with the pending record, and the session is a
+            # filter that must equal the record's own.
+            form = urllib.parse.parse_qs(body.decode("utf-8", errors="replace"), keep_blank_values=True)
+            pending_id = form.get("id", [""])[0]
+            session = form.get("session", [""])[0]
+            if self.path == "/activity/chat/approve":
+                result = _chat_approve(pending_id, session, messages_path=MESSAGES_PATH)
+            else:
+                result = _chat_reject(pending_id, session)
+            self._send_json(200, result)
             return
 
         if self.path == "/activity/chat":

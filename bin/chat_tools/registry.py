@@ -144,4 +144,13 @@ def run(name, args_json, load=None, list_accounts=None, session=""):
     args, error = _validate(tool, args_json)
     if error:
         return {"error": error}
+    if tool.mode == WRITE:
+        # Never executed here: the args are frozen as a pending action that
+        # only the dashboard's browser-only approve route can run.
+        if not session:
+            return {"error": f"{tool.name} needs a chat session to be approved in"}
+        from chat_tools import pending
+        summary = next((str(v)[:80] for v in args.values() if isinstance(v, str)), "")
+        return {"status": "pending_approval", "tool": tool.name, "summary": summary,
+                "args": args, "id": pending.create(tool.name, args, session, summary)}
     return execute(tool, args, load=load, list_accounts=list_accounts)

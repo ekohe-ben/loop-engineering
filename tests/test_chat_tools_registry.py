@@ -137,3 +137,69 @@ def test_unserialisable_handler_result_becomes_error_not_exception(tools):
                            connector_type="fake", args=(), handler=dated))
     result = registry.run("fake.dated", "{}", load=FakeConnector, list_accounts=accounts("a1"))
     assert result == {"error": "fake.dated failed (TypeError)"}
+
+
+def test_write_tool_returns_pending_and_does_not_run_the_handler(tools, monkeypatch, tmp_path):
+    from chat_tools import pending
+    monkeypatch.setattr(pending, "PENDING_DIR", tmp_path)
+    ran = []
+    registry.register(Tool(name="fake.write", description="w", mode=registry.WRITE,
+                           connector_type="fake", args=(Arg("body"),),
+                           handler=lambda c, a: ran.append(a) or {"ok": 1}))
+    result = registry.run("fake.write", json.dumps({"body": "hello"}),
+                          load=FakeConnector, list_accounts=accounts("a1"), session="s1")
+    assert result["status"] == "pending_approval" and result["args"] == {"body": "hello"}
+    assert result["summary"] == "hello" and ran == []
+    assert pending.claim(result["id"], "s1")["tool"] == "fake.write"
+
+
+def test_run_never_reaches_execute_for_a_write_tool(tools, monkeypatch, tmp_path):
+    from chat_tools import pending
+    monkeypatch.setattr(pending, "PENDING_DIR", tmp_path)
+
+    def handler(connector, args):
+        raise AssertionError("a write handler must never run from run()")
+
+    def no_execute(*a, **k):
+        raise AssertionError("run() must not execute a write tool")
+
+    registry.register(Tool(name="fake.write", description="w", mode=registry.WRITE,
+                           connector_type=None, args=(Arg("body"),), handler=handler))
+    monkeypatch.setattr(registry, "execute", no_execute)
+    result = registry.run("fake.write", json.dumps({"body": "x"}), session="s1")
+    assert result["status"] == "pending_approval"
+
+
+def test_write_tool_without_a_chat_session_is_refused(tools, monkeypatch, tmp_path):
+    from chat_tools import pending
+    monkeypatch.setattr(pending, "PENDING_DIR", tmp_path)
+    registry.register(Tool(name="fake.write", description="w", mode=registry.WRITE,
+                           connector_type=None, args=(Arg("body"),), handler=_echo))
+    result = registry.run("fake.write", json.dumps({"body": "x"}), session="")
+    assert "error" in result and list(tmp_path.iterdir()) == []
+
+
+def test_write_tool_with_invalid_args_creates_no_pending_action(tools, monkeypatch, tmp_path):
+    from chat_tools import pending
+    monkeypatch.setattr(pending, "PENDING_DIR", tmp_path)
+    registry.register(Tool(name="fake.write", description="w", mode=registry.WRITE,
+                           connector_type=None, args=(Arg("body"),), handler=_echo))
+    result = registry.run("fake.write", "{}", session="s1")
+    assert "error" in result and list(tmp_path.iterdir()) == []
+
+
+def test_execute_is_only_called_from_run_and_the_approve_route():
+    """registry.execute runs a tool for real. For a WRITE tool the only
+    legitimate caller is the browser-only approve route, so any new call
+    site must be reviewed against that rule."""
+    import pathlib
+    import re
+    bin_dir = pathlib.Path(registry.__file__).resolve().parent.parent
+    callers = []
+    for path in sorted(bin_dir.rglob("*.py")):
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if re.search(r"(?<![\w.])execute\(|registry\.execute\(", line) and "def execute(" not in line:
+                callers.append(f"{path.relative_to(bin_dir)}:{line.strip()}")
+    assert sorted(c.split(":", 1)[0] for c in callers) == [
+        "chat_tools/registry.py", "web/dashboard_server.py"]
+    assert any("registry.execute(tool, record[\"args\"]" in c for c in callers)
