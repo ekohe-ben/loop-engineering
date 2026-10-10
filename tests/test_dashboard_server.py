@@ -14355,3 +14355,12 @@ def test_plugin_loop_nav_icons_are_in_the_icon_font_subset():
 def test_run_now_button_is_not_full_width():
     rule = ds._STYLE.split(".run-now-action button {")[1].split("}")[0]
     assert "width: 100%" not in rule
+
+
+def test_chat_docs_route_serves_a_saved_document_and_rejects_traversal(tmp_path, monkeypatch):
+    from chat_tools import documents
+    monkeypatch.setattr(documents, "DOCS_DIR", tmp_path)
+    (tmp_path / "note-1.md").write_text("# hi")
+    assert ds.read_chat_doc("note-1.md") == "# hi"
+    assert ds.read_chat_doc("../secret.md") is None
+    assert ds.read_chat_doc("missing-2.md") is None

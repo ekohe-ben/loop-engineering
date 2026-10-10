@@ -1122,6 +1122,20 @@ def read_latest_review(loop_dir=LOOP_DIR):
     return path.read_text()
 
 
+def read_chat_doc(name):
+    """Text of a document saved by chat_tools.documents, or None for any name
+    the saver could not have generated or a file that does not exist."""
+    from chat_tools import documents
+    safe = documents.safe_doc_name(name)
+    if safe is None:
+        return None
+    path = Path(documents.DOCS_DIR) / safe
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+
+
 def read_history_file(name, history_dir=HISTORY_DIR):
     """Read one history file by name. Security-critical: this serves
     user-supplied input (a URL path segment) as a filename, so path traversal
@@ -14717,6 +14731,22 @@ class DashboardHandler(BaseHTTPRequestHandler):
             query = urllib.parse.parse_qs(split.query)
             reply_key = query.get("reply_key", [""])[0]
             self._stream_chat_reply(reply_key)
+            return
+
+        if split.path.startswith("/chat-docs/"):
+            name = split.path[len("/chat-docs/"):]
+            content = read_chat_doc(name)
+            if content is None:
+                self._not_found()
+                return
+            encoded = content.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/markdown; charset=utf-8")
+            self.send_header("Content-Disposition", f'attachment; filename="{name}"')
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Content-Length", str(len(encoded)))
+            self.end_headers()
+            self.wfile.write(encoded)
             return
 
         if split.path == "/favicon.ico":
