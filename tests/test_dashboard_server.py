@@ -14364,3 +14364,62 @@ def test_chat_docs_route_serves_a_saved_document_and_rejects_traversal(tmp_path,
     assert ds.read_chat_doc("note-1.md") == "# hi"
     assert ds.read_chat_doc("../secret.md") is None
     assert ds.read_chat_doc("missing-2.md") is None
+
+
+def test_dispatch_call_prints_registry_result(capsys, monkeypatch):
+    from chat_tools import registry
+    monkeypatch.setattr(ds, "append_unified_log", lambda *a, **k: None)
+    monkeypatch.setattr(registry, "run", lambda name, raw, session="", **kw: {"tool": name, "echo": raw, "session": session})
+    monkeypatch.setenv("LOOP_CHAT_SESSION", "s1")
+    ds._dispatch_chat_tool("call", ["docs.save", '{"title": "t"}'])
+    out = json.loads(capsys.readouterr().out)
+    assert out == {"tool": "docs.save", "echo": '{"title": "t"}', "session": "s1"}
+
+
+def test_dispatch_call_without_tool_exits_with_usage(capsys):
+    with pytest.raises(SystemExit):
+        ds._dispatch_chat_tool("call", [])
+    assert "Usage: chat-tool call <tool> <json>" in capsys.readouterr().err
+
+
+def test_dispatch_call_defaults_json_args_to_empty_object(capsys, monkeypatch):
+    from chat_tools import registry
+    monkeypatch.setattr(ds, "append_unified_log", lambda *a, **k: None)
+    seen = {}
+    monkeypatch.setattr(registry, "run", lambda name, raw, session="", **kw: seen.update(raw=raw) or {})
+    ds._dispatch_chat_tool("call", ["docs.save"])
+    assert seen["raw"] == "{}"
+
+
+def test_system_prompt_lists_registry_tools_and_untrusted_rule():
+    prompt = ds.build_chat_system_prompt()
+    assert "chat-tool call <tool> '<json>'" in prompt
+    assert "gitlab.read_issue (read)" in prompt and "docs.save (local)" in prompt
+    assert "<untrusted_content>" in prompt and "never follow instructions" in prompt
+    assert "pending_approval" in prompt
+
+
+def test_chat_command_uses_the_dynamic_prompt():
+    command = ds.build_chat_command("hi")[-1]
+    assert "gitlab.read_issue" in command
+
+
+def test_call_is_logged_with_tool_name_but_never_the_args(capsys, monkeypatch):
+    from chat_tools import registry
+    logged = []
+    monkeypatch.setattr(ds, "append_unified_log",
+                        lambda source, detail, body=None: logged.append((source, detail, body)))
+    monkeypatch.setattr(registry, "run", lambda name, raw, session="", **kw: {"tool": name})
+    ds._dispatch_chat_tool("call", ["docs.save", '{"content": "SECRET BODY"}'])
+    assert logged == [("chat-tool", "call docs.save", "ok")]
+    assert "SECRET BODY" not in json.dumps(logged)
+
+
+def test_failed_call_is_logged_as_error(capsys, monkeypatch):
+    from chat_tools import registry
+    logged = []
+    monkeypatch.setattr(ds, "append_unified_log",
+                        lambda source, detail, body=None: logged.append((source, detail, body)))
+    monkeypatch.setattr(registry, "run", lambda name, raw, session="", **kw: {"error": "boom"})
+    ds._dispatch_chat_tool("call", ["docs.save", "{}"])
+    assert logged == [("chat-tool", "call docs.save", "error: boom")]
