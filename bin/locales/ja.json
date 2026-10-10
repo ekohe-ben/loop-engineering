@@ -936,5 +936,14 @@
   "Raise": "提起したい点",
   "From last time": "前回から",
   "Highlights": "ハイライト",
-  "Live {loop}": "ライブ {loop}"
+  "Live {loop}": "ライブ {loop}",
+  "Approve": "承認",
+  "Reject": "却下",
+  "Waiting for your approval": "承認待ちです",
+  "This action expired or was already handled.": "この操作は期限切れか、すでに処理済みです。",
+  "Unknown action.": "不明な操作です。",
+  "{tool} failed: {error}": "{tool} が失敗しました: {error}",
+  "Approved and done: {tool} {summary}": "承認して実行しました: {tool} {summary}",
+  "Approved.": "承認しました。",
+  "Rejected.": "却下しました。"
 }

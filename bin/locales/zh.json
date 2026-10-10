@@ -936,5 +936,14 @@
   "Raise": "要提出的事项",
   "From last time": "上次遗留",
   "Highlights": "要点",
-  "Live {loop}": "实时 {loop}"
+  "Live {loop}": "实时 {loop}",
+  "Approve": "批准",
+  "Reject": "拒绝",
+  "Waiting for your approval": "等待你的批准",
+  "This action expired or was already handled.": "此操作已过期或已被处理。",
+  "Unknown action.": "未知的操作。",
+  "{tool} failed: {error}": "{tool} 失败：{error}",
+  "Approved and done: {tool} {summary}": "已批准并执行：{tool} {summary}",
+  "Approved.": "已批准。",
+  "Rejected.": "已拒绝。"
 }
