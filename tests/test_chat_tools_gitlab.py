@@ -7,10 +7,11 @@ from chat_tools import gitlab as chat_gitlab, registry
 
 class FakeGitLab:
     def __init__(self, routes):
-        self.routes, self.calls = routes, []
+        self.routes, self.calls, self.bodies = routes, [], []
 
     def api(self, method, path, **kw):
         self.calls.append((method, path))
+        self.bodies.append(kw.get("json_body"))
         return self.routes[path]
 
 
@@ -94,3 +95,34 @@ def test_list_issues_returns_compact_rows():
                           load=lambda account_id: fake, list_accounts=lambda: ACCOUNTS)
     row = result["result"]["issues"][0]
     assert row["iid"] == 482 and row["title"].startswith("<untrusted_content>")
+
+
+def test_comment_posts_a_note_when_executed():
+    fake = FakeGitLab({"/projects/g%2Fp/issues/482/notes": {"id": 9}})
+    tool = registry.TOOLS["gitlab.comment"]
+    result = registry.execute(
+        tool, {"url": "https://gitlab.example.com/g/p/-/issues/482", "body": "Looks fixed"},
+        load=lambda account_id: fake, list_accounts=lambda: ACCOUNTS)
+    assert result["result"] == {"note_id": 9}
+    assert fake.calls == [("POST", "/projects/g%2Fp/issues/482/notes")]
+    assert fake.bodies == [{"body": "Looks fixed"}]
+
+
+def test_comment_without_target_is_a_clear_input_error():
+    tool = registry.TOOLS["gitlab.comment"]
+    result = registry.execute(tool, {"body": "x"}, load=lambda i: FakeGitLab({}),
+                              list_accounts=lambda: ACCOUNTS)
+    assert "url, or project and iid" in result["error"]
+
+
+def test_comment_is_a_write_tool_so_run_only_proposes_it(tmp_path, monkeypatch):
+    from chat_tools import pending
+    monkeypatch.setattr(pending, "PENDING_DIR", tmp_path)
+    fake = FakeGitLab({})
+    result = registry.run(
+        "gitlab.comment",
+        json.dumps({"url": "https://gitlab.example.com/g/p/-/issues/482", "body": "hi"}),
+        load=lambda i: fake, list_accounts=lambda: ACCOUNTS, session="s1")
+    assert registry.TOOLS["gitlab.comment"].mode == registry.WRITE
+    assert result["status"] == "pending_approval"
+    assert fake.calls == []

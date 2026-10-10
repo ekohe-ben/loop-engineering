@@ -4,7 +4,7 @@ third-party content and is wrapped with registry.untrusted()."""
 import re
 import urllib.parse
 
-from chat_tools.registry import Arg, READ, Tool, ToolInputError, register, untrusted
+from chat_tools.registry import Arg, READ, WRITE, Tool, ToolInputError, register, untrusted
 
 _ISSUE_URL_RE = re.compile(r"^https?://([^/]+)/(.+?)/-/issues/(\d+)(?:[/?#].*)?$")
 
@@ -36,14 +36,18 @@ def _select_by_url(accounts, args):
     return None
 
 
-def _read_issue(connector, args):
+def _issue_ref(args):
     parsed = parse_issue_url(args.get("url"))
     if parsed:
         _, project, iid = parsed
-    elif args.get("project") and args.get("iid"):
-        project, iid = args["project"], args["iid"]
-    else:
-        raise ToolInputError("url, or project and iid, is required")
+        return project, iid
+    if args.get("project") and args.get("iid"):
+        return args["project"], args["iid"]
+    raise ToolInputError("url, or project and iid, is required")
+
+
+def _read_issue(connector, args):
+    project, iid = _issue_ref(args)
     base = f"/projects/{_quote(project)}/issues/{int(iid)}"
     issue = connector.api("GET", base)
     notes = connector.api("GET", f"{base}/notes?per_page=50&sort=asc")
@@ -76,7 +80,20 @@ register(Tool(
     description="Read one GitLab issue with its description and comments (pass the issue url, or project and iid)",
     args=(Arg("url", required=False), Arg("project", required=False),
           Arg("iid", kind="int", required=False))))
+def _comment(connector, args):
+    project, iid = _issue_ref(args)
+    note = connector.api("POST", f"/projects/{_quote(project)}/issues/{int(iid)}/notes",
+                         json_body={"body": args["body"]})
+    return {"note_id": note.get("id")}
+
+
 register(Tool(
     name="gitlab.list_issues", mode=READ, connector_type="gitlab", handler=_list_issues,
     description="List up to 20 issues of a GitLab project (state: opened, closed or all)",
     args=(Arg("project"), Arg("state", required=False))))
+register(Tool(
+    name="gitlab.comment", mode=WRITE, connector_type="gitlab", handler=_comment,
+    select=_select_by_url,
+    description="Post a comment on a GitLab issue (needs the user's approval)",
+    args=(Arg("body"), Arg("url", required=False), Arg("project", required=False),
+          Arg("iid", kind="int", required=False))))
