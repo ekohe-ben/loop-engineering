@@ -297,6 +297,7 @@ def _chat_job_create():
     with _CHAT_JOBS_LOCK:
         _CHAT_JOBS[reply_key] = {
             "chunks": [],
+            "events": [],
             "done": False,
             "error": None,
             "final_text": None,
@@ -317,6 +318,18 @@ def _chat_job_append(reply_key, text):
         return
     with job["cond"]:
         job["chunks"].append(text)
+        job["cond"].notify_all()
+
+
+def _chat_job_event(reply_key, event):
+    """Buffers one tool-call event (see chat_tool_events_in_stream_line) on
+    the job and wakes any waiting stream. No-op for an unknown job."""
+    with _CHAT_JOBS_LOCK:
+        job = _CHAT_JOBS.get(reply_key)
+    if job is None:
+        return
+    with job["cond"]:
+        job["events"].append(event)
         job["cond"].notify_all()
 
 
@@ -387,6 +400,7 @@ def _iter_chat_job_chunks(reply_key, idle_timeout=None):
     if job is None:
         return
     sent = 0
+    sent_events = 0
     while True:
         with job["cond"]:
             # Only actually wait if there's nothing to report yet - a job
@@ -395,23 +409,27 @@ def _iter_chat_job_chunks(reply_key, idle_timeout=None):
             # finished) must be drained immediately, not held for a full
             # idle_timeout keepalive tick first.
             waited = False
-            if sent >= len(job["chunks"]) and not job["done"]:
+            if sent >= len(job["chunks"]) and sent_events >= len(job["events"]) and not job["done"]:
                 job["cond"].wait(timeout=idle_timeout)
                 waited = True
             pending = job["chunks"][sent:]
             sent = len(job["chunks"])
+            new_events = job["events"][sent_events:]
+            sent_events = len(job["events"])
             done = job["done"]
             error = job["error"]
             final_text = job["final_text"]
             changed = job["changed"]
         for chunk in pending:
             yield ("chunk", chunk)
+        for tool_event in new_events:
+            yield ("tool", tool_event)
         if done:
             if changed:
                 yield ("changed",)
             yield ("done", error, final_text)
             return
-        if waited and not pending:
+        if waited and not pending and not new_events:
             yield ("idle", None)
 
 
@@ -782,7 +800,7 @@ def resolve_chat_session_for_send(requested, text, messages_path=None):
     return create_chat_session(text, messages_path)
 
 
-def append_message(from_, text, path=None, session=None):
+def append_message(from_, text, path=None, session=None, tools=None):
     """Appends one message with the current UTC timestamp. from_ is "user"
     or "loop". User messages start with seen_by_loop: False so a later
     pop_unseen_user_messages() call can find them; loop messages carry no
@@ -822,6 +840,8 @@ def append_message(from_, text, path=None, session=None):
                 entry["seen_by_loop"] = False
             if session != LEGACY_CHAT_SESSION_ID:
                 entry["session"] = session
+            if tools:
+                entry["tools"] = tools
             messages.append(entry)
             _atomic_write_json(messages, path)
         finally:
@@ -1004,6 +1024,7 @@ def _run_chat_job(reply_key, prompt, messages_path=None, session_id=None):
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             text=True,
+            env=dict(os.environ, LOOP_CHAT_SESSION=session_id or ""),
         )
     except OSError as exc:
         append_unified_log("chat-assistant", f"error ({ai_cli_name})", body=f"Could not start assistant: {exc}")
@@ -1015,7 +1036,11 @@ def _run_chat_job(reply_key, prompt, messages_path=None, session_id=None):
     try:
         final_text = None
         final_is_error = False
+        tool_events = []
         for line in process.stdout:
+            for tool_event in chat_tool_events_in_stream_line(line):
+                _chat_job_event(reply_key, tool_event)
+                tool_events.append(tool_event)
             if any(a in _CHAT_MUTATING_ACTIONS for a in chat_tool_actions_in_stream_line(line)):
                 _chat_job_mark_changed(reply_key)
             parsed = parse_chat_stream_line(line)
@@ -1028,7 +1053,8 @@ def _run_chat_job(reply_key, prompt, messages_path=None, session_id=None):
         process.wait()
 
         if final_text and not final_is_error:
-            append_message("loop", final_text, messages_path, session=session_id)
+            append_message("loop", final_text, messages_path, session=session_id,
+                           tools=merge_tool_events(tool_events))
             finish_text = final_text
             _maybe_title_chat_session(session_id, final_text, messages_path)
         else:
@@ -1733,6 +1759,88 @@ def chat_tool_actions_in_stream_line(line):
         command = (block.get("input") or {}).get("command") or ""
         actions.extend(_CHAT_TOOL_COMMAND_RE.findall(command))
     return actions
+
+
+_CHAT_CALL_RE = re.compile(r"\bdashboard_server\.py\s+chat-tool\s+call\s+([a-z0-9_.-]+)\s*(.*)$", re.S)
+
+
+def _tool_args_summary(raw):
+    """First string value of a call's JSON args, cut to 80 chars - enough to
+    tell calls apart in a chip without echoing a whole payload."""
+    raw = raw.strip()
+    if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in "'\"":
+        raw = raw[1:-1]
+    try:
+        value = json.loads(raw)
+    except ValueError:
+        return ""
+    if isinstance(value, dict):
+        for item in value.values():
+            if isinstance(item, (str, int)) and not isinstance(item, bool):
+                return str(item)[:80]
+    return ""
+
+
+def merge_tool_events(events):
+    """[{"name", "summary", "ok"}] in call order; ok is None until a result.
+    A pending event adds a "pending" dict to its call's entry."""
+    order, by_id = [], {}
+    for event in events:
+        if event["kind"] == "start":
+            entry = {"name": event["name"], "summary": event["summary"], "ok": None}
+            by_id[event["id"]] = entry
+            order.append(entry)
+        elif event["kind"] == "result" and event["id"] in by_id:
+            by_id[event["id"]]["ok"] = event["ok"]
+        elif event["kind"] == "pending" and event["id"] in by_id:
+            by_id[event["id"]]["pending"] = {k: v for k, v in event.items() if k not in ("kind", "id")}
+    return order
+
+
+def _tool_result_text(block):
+    content = block.get("content")
+    if isinstance(content, list):
+        content = "".join(p.get("text", "") for p in content if isinstance(p, dict))
+    return content if isinstance(content, str) else ""
+
+
+def chat_tool_events_in_stream_line(line):
+    """Start/result/pending events for one stream-json line - [] for any other
+    line. Start events cover every `chat-tool` Bash call (generic `call` and
+    the older fixed actions), so the chat can show them all as tool chips."""
+    try:
+        event = json.loads(line)
+    except ValueError:
+        return []
+    if not isinstance(event, dict) or event.get("type") not in ("assistant", "user"):
+        return []
+    out = []
+    content = (event.get("message") or {}).get("content")
+    for block in content if isinstance(content, list) else []:
+        if not isinstance(block, dict):
+            continue
+        if event["type"] == "assistant" and block.get("type") == "tool_use":
+            command = (block.get("input") or {}).get("command") or ""
+            call = _CHAT_CALL_RE.search(command)
+            if call:
+                out.append({"kind": "start", "id": block.get("id", ""), "name": call.group(1),
+                            "summary": _tool_args_summary(call.group(2))})
+            else:
+                out.extend({"kind": "start", "id": block.get("id", ""), "name": a, "summary": ""}
+                           for a in _CHAT_TOOL_COMMAND_RE.findall(command))
+        elif event["type"] == "user" and block.get("type") == "tool_result":
+            text = _tool_result_text(block)
+            try:
+                data = json.loads(text)
+            except ValueError:
+                data = None
+            ok = not block.get("is_error") and not (isinstance(data, dict) and "error" in data)
+            out.append({"kind": "result", "id": block.get("tool_use_id", ""), "ok": ok})
+            if isinstance(data, dict) and data.get("status") == "pending_approval":
+                out.append({"kind": "pending", "id": block.get("tool_use_id", ""),
+                            "pending_id": data.get("id", ""), "tool": data.get("tool", ""),
+                            "summary": data.get("summary", ""), "args": data.get("args", {})})
+    return out
 
 
 def _sse_frame(event, data):
@@ -14943,6 +15051,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     # thinking. Never parsed by the browser's EventSource
                     # as a named event, by design.
                     self.wfile.write(b": keepalive\n\n")
+                elif kind == "tool":
+                    self.wfile.write(_sse_frame("tool", event[1]))
                 elif kind == "changed":
                     # The reply ran a mutating chat-tool action, so the
                     # page the user is on may now be stale (see the

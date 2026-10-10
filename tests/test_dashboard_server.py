@@ -12049,7 +12049,7 @@ def test_run_chat_job_flags_a_page_change_when_a_mutating_action_ran(tmp_path, m
     monkeypatch.setattr(ds.subprocess, "Popen", lambda *a, **k: _FakeChatPopenProcess(lines))
     key = ds._chat_job_create()
     ds._run_chat_job(key, "add a topic", messages_path=messages_path)
-    assert list(ds._iter_chat_job_chunks(key)) == [("changed",), ("done", None, "Added topic t")]
+    assert [e for e in ds._iter_chat_job_chunks(key) if e[0] != "tool"] == [("changed",), ("done", None, "Added topic t")]
 
 
 def test_run_chat_job_read_only_actions_do_not_flag_a_page_change(tmp_path, monkeypatch):
@@ -12062,7 +12062,7 @@ def test_run_chat_job_read_only_actions_do_not_flag_a_page_change(tmp_path, monk
     monkeypatch.setattr(ds.subprocess, "Popen", lambda *a, **k: _FakeChatPopenProcess(lines))
     key = ds._chat_job_create()
     ds._run_chat_job(key, "list topics", messages_path=messages_path)
-    assert list(ds._iter_chat_job_chunks(key)) == [("done", None, "none")]
+    assert [e for e in ds._iter_chat_job_chunks(key) if e[0] != "tool"] == [("done", None, "none")]
 
 
 def test_ai_panel_script_refreshes_the_page_after_a_change():
@@ -14423,3 +14423,114 @@ def test_failed_call_is_logged_as_error(capsys, monkeypatch):
     monkeypatch.setattr(registry, "run", lambda name, raw, session="", **kw: {"error": "boom"})
     ds._dispatch_chat_tool("call", ["docs.save", "{}"])
     assert logged == [("chat-tool", "call docs.save", "error: boom")]
+
+
+def _assistant_line(cmd, tool_id="t1"):
+    return json.dumps({"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "id": tool_id, "name": "Bash", "input": {"command": cmd}}]}})
+
+
+def _result_line(text, tool_id="t1", is_error=False):
+    return json.dumps({"type": "user", "message": {"content": [
+        {"type": "tool_result", "tool_use_id": tool_id, "is_error": is_error, "content": text}]}})
+
+
+CALL = ("python3 /x/bin/web/dashboard_server.py chat-tool call gitlab.read_issue "
+        "'{\"url\": \"https://gitlab.example.com/g/p/-/issues/482\"}'")
+
+
+def test_start_event_names_the_tool_and_summarises_args():
+    events = ds.chat_tool_events_in_stream_line(_assistant_line(CALL))
+    assert events == [{"kind": "start", "id": "t1", "name": "gitlab.read_issue",
+                       "summary": "https://gitlab.example.com/g/p/-/issues/482"}]
+
+
+def test_existing_chat_tool_actions_also_show_as_tools():
+    line = _assistant_line("python3 /x/bin/web/dashboard_server.py chat-tool status")
+    assert ds.chat_tool_events_in_stream_line(line)[0]["name"] == "status"
+
+
+def test_result_event_marks_error_json_as_not_ok():
+    assert ds.chat_tool_events_in_stream_line(_result_line('{"tool": "x", "result": {}}')) == \
+        [{"kind": "result", "id": "t1", "ok": True}]
+    assert ds.chat_tool_events_in_stream_line(_result_line('{"error": "boom"}')) == \
+        [{"kind": "result", "id": "t1", "ok": False}]
+
+
+def test_pending_result_emits_a_pending_event():
+    text = json.dumps({"status": "pending_approval", "id": "abc", "tool": "gitlab.comment",
+                       "summary": "g/p#482", "args": {"body": "hi"}})
+    kinds = [e["kind"] for e in ds.chat_tool_events_in_stream_line(_result_line(text))]
+    assert kinds == ["result", "pending"]
+
+
+def test_non_tool_lines_and_bad_json_yield_nothing():
+    assert ds.chat_tool_events_in_stream_line("") == []
+    assert ds.chat_tool_events_in_stream_line("not json") == []
+    assert ds.chat_tool_events_in_stream_line(json.dumps({"type": "result"})) == []
+
+
+def test_job_replays_tool_events_before_done():
+    key = ds._chat_job_create()
+    ds._chat_job_event(key, {"kind": "start", "id": "t1", "name": "docs.save", "summary": ""})
+    ds._chat_job_finish(key, final_text="ok")
+    kinds = [e[0] for e in ds._iter_chat_job_chunks(key, idle_timeout=0.01)]
+    assert kinds == ["tool", "done"]
+
+
+def test_job_wakes_for_tool_event_without_chunks():
+    key = ds._chat_job_create()
+    timer = threading.Timer(0.05, ds._chat_job_event,
+                            (key, {"kind": "start", "id": "t1", "name": "n", "summary": ""}))
+    timer.start()
+    first = next(iter(ds._iter_chat_job_chunks(key, idle_timeout=5)))
+    assert first[0] == "tool"
+    ds._chat_job_finish(key, final_text="ok")
+
+
+def test_append_message_stores_merged_tool_calls(tmp_path):
+    path = tmp_path / "messages.json"
+    tools = [{"name": "docs.save", "summary": "t", "ok": True}]
+    ds.append_message("loop", "done", path, session="s1", tools=tools)
+    assert ds.read_messages(path)[-1]["tools"] == tools
+    ds.append_message("loop", "plain", path, session="s1")
+    assert "tools" not in ds.read_messages(path)[-1]
+
+
+def test_merge_tool_events_pairs_results_with_starts():
+    events = [{"kind": "start", "id": "a", "name": "n1", "summary": "s1"},
+              {"kind": "start", "id": "b", "name": "n2", "summary": ""},
+              {"kind": "result", "id": "a", "ok": False}]
+    assert ds.merge_tool_events(events) == [
+        {"name": "n1", "summary": "s1", "ok": False}, {"name": "n2", "summary": "", "ok": None}]
+
+
+def test_merge_tool_events_attaches_pending_to_its_call():
+    events = [{"kind": "start", "id": "a", "name": "gitlab.comment", "summary": "s"},
+              {"kind": "result", "id": "a", "ok": True},
+              {"kind": "pending", "id": "a", "pending_id": "p1", "tool": "gitlab.comment",
+               "summary": "g/p#1", "args": {"body": "hi"}}]
+    merged = ds.merge_tool_events(events)
+    assert merged[0]["pending"]["pending_id"] == "p1"
+
+
+def test_run_chat_job_passes_session_env_and_stores_tools(tmp_path, monkeypatch):
+    monkeypatch.setattr(ds, "UNIFIED_LOG_PATH", tmp_path / "logs" / "loop-engineering.log")
+    messages_path = tmp_path / "messages.json"
+    messages_path.write_text("[]")
+    lines = [_assistant_line(CALL) + "\n", _result_line('{"tool": "x"}') + "\n",
+             '{"is_error":false,"result":"hello","type":"result"}\n']
+    seen = {}
+
+    def fake_popen(*a, **k):
+        seen.update(k)
+        return _FakeChatPopenProcess(lines)
+
+    monkeypatch.setattr(ds.subprocess, "Popen", fake_popen)
+    key = ds._chat_job_create()
+    ds._run_chat_job(key, "hi", messages_path=messages_path, session_id="s9")
+    assert seen["env"]["LOOP_CHAT_SESSION"] == "s9"
+    stored = ds.read_messages(messages_path)[-1]
+    assert stored["tools"][0]["name"] == "gitlab.read_issue" and stored["tools"][0]["ok"] is True
+    kinds = [e[0] for e in ds._iter_chat_job_chunks(key, idle_timeout=0.01)]
+    assert kinds.count("tool") == 2
