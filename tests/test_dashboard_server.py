@@ -14534,3 +14534,35 @@ def test_run_chat_job_passes_session_env_and_stores_tools(tmp_path, monkeypatch)
     assert stored["tools"][0]["name"] == "gitlab.read_issue" and stored["tools"][0]["ok"] is True
     kinds = [e[0] for e in ds._iter_chat_job_chunks(key, idle_timeout=0.01)]
     assert kinds.count("tool") == 2
+
+
+def test_chip_html_renders_each_call_with_state_and_escapes():
+    html_out = ds.chat_tool_chips_html([
+        {"name": "gitlab.read_issue", "summary": "g/p#482", "ok": True},
+        {"name": "docs.save", "summary": "<b>x</b>", "ok": None},
+        {"name": "gitlab.list_issues", "summary": "", "ok": False}])
+    assert 'tool-chip-ok' in html_out and 'tool-chip-run' in html_out and 'tool-chip-err' in html_out
+    assert "gitlab.read_issue" in html_out and "g/p#482" in html_out
+    assert "&lt;b&gt;x&lt;/b&gt;" in html_out and "<b>x</b>" not in html_out
+
+
+def test_chip_html_is_empty_without_tools():
+    assert ds.chat_tool_chips_html(None) == "" and ds.chat_tool_chips_html([]) == ""
+
+
+def test_stored_loop_message_renders_its_chips(tmp_path):
+    path = tmp_path / "messages.json"
+    ds.append_message("loop", "reply text", path, session="s1",
+                      tools=[{"name": "docs.save", "summary": "t", "ok": True}])
+    fragment = ds.render_activity_messages_fragment(path, "s1")
+    assert "tool-chip" in fragment and "docs.save" in fragment
+
+
+def test_chat_scripts_handle_tool_events(monkeypatch, tmp_path):
+    assert "window.__loopToolChips" in ds._CHAT_TOOL_CHIPS_JS
+    assert "textContent" in ds._CHAT_TOOL_CHIPS_JS and "innerHTML" not in ds._CHAT_TOOL_CHIPS_JS
+    monkeypatch.setattr(ds, "MESSAGES_PATH", tmp_path / "messages.json")
+    page = ds.render_overview_page()
+    assert "window.__loopToolChips = function" in page
+    # Both the Activity chat script and the AI panel script subscribe.
+    assert page.count("source.addEventListener('tool'") == 2

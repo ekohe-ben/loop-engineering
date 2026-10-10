@@ -5565,6 +5565,11 @@ html .chat-page.is-empty .activity-composer {{
 /* History + New chat, reachable at any point in either layout: fixed
    just under the topbar, right-aligned. New chat hides on the empty hero,
    which already is a new chat. */
+.tool-chips {{ display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.4rem; }}
+.tool-chip {{ font-size: 0.75rem; padding: 0.15rem 0.55rem; border-radius: 999px; background: var(--md-surface-container-high); color: var(--md-on-surface-variant); }}
+.tool-chip-ok {{ background: color-mix(in srgb, var(--md-primary) 14%, var(--md-surface)); }}
+.tool-chip-err {{ background: color-mix(in srgb, var(--md-error) 16%, var(--md-surface)); }}
+.tool-chip-run {{ opacity: 0.7; }}
 .chat-toolbar {{ position: fixed; top: calc(var(--shell-top) + 0.75rem); right: calc(var(--shell-right) + 0.75rem); z-index: 85; display: flex; gap: 0.5rem; }}
 .chat-new-form {{ margin: 0; display: inline-flex; }}
 .chat-page.is-empty .chat-new-form {{ display: none; }}
@@ -7499,6 +7504,61 @@ window.__loopTextReveal = function(onRender) {
 };
 """
 
+# Shared by both chat UIs (the Activity chat and the AI side panel): turns the
+# stream's `tool` events into chips in the pending reply bubble. `host` is the
+# bubble element, or a function returning it (called on the first tool call,
+# so the bubble only replaces the thinking indicator once there is something
+# to show). Text goes in via textContent only - tool names and summaries are
+# model/third-party text. `pending` (and any other kind) is ignored here.
+_CHAT_TOOL_CHIPS_JS = """
+window.__loopToolChips = function(host) {
+  var chips = {};
+  var row = null;
+  return function(ev) {
+    if (!ev || typeof ev !== 'object') return;
+    var chip = chips[ev.id];
+    if (ev.kind === 'start') {
+      if (!row) {
+        var container = typeof host === 'function' ? host() : host;
+        if (!container) return;
+        row = document.createElement('div');
+        row.className = 'tool-chips';
+        var anchor = container.querySelector('.message-text');
+        if (anchor && anchor.parentNode === container) container.insertBefore(row, anchor);
+        else container.insertBefore(row, container.firstChild);
+      }
+      chip = document.createElement('span');
+      chip.className = 'tool-chip tool-chip-run';
+      chip.textContent = ev.name + (ev.summary ? ' \\u00b7 ' + ev.summary : '');
+      chips[ev.id] = chip;
+      row.appendChild(chip);
+    } else if (ev.kind === 'result' && chip) {
+      chip.className = 'tool-chip ' + (ev.ok ? 'tool-chip-ok' : 'tool-chip-err');
+    }
+  };
+};
+"""
+
+
+def chat_tool_chips_html(tools):
+    """Chips for a stored loop message's `tools` list ([{name, summary, ok}]),
+    mirroring what window.__loopToolChips shows live. ok: True/False/None
+    maps to ok/err/run."""
+    if not tools:
+        return ""
+    chips = []
+    for tool in tools:
+        if not isinstance(tool, dict):
+            continue
+        state = {True: "ok", False: "err"}.get(tool.get("ok"), "run")
+        summary = f" \u00b7 {html.escape(str(tool.get('summary') or ''))}" if tool.get("summary") else ""
+        chips.append(f'<span class="tool-chip tool-chip-{state}">'
+                     f'{html.escape(str(tool.get("name", "")))}{summary}</span>')
+    if not chips:
+        return ""
+    return f'<div class="tool-chips">{"".join(chips)}</div>'
+
+
 # Client side of the AI side panel (see _ai_panel_html). A plain string,
 # not part of _render_shell's f-string, so its braces stay single; the
 # __PLACEHOLDERS__ are swapped for json.dumps(_t(...)) at render time.
@@ -7806,6 +7866,10 @@ _AI_PANEL_SCRIPT = """
           accumulated += JSON.parse(ev.data);
           reveal.set(accumulated);
         });
+        var onTool = window.__loopToolChips(function() { return replyBubble().parentNode; });
+        source.addEventListener('tool', function(ev) {
+          try { onTool(JSON.parse(ev.data)); } catch (e) {}
+        });
         // The reply added/changed something (a topic, a project, a loop's
         // state...): reload once it's shown, so the page reflects it. The
         // panel reopens on the same conversation (see KEY_OPEN/KEY_SESSION).
@@ -8065,6 +8129,7 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&icon_names={_MATERIAL_SYMBOLS_ICON_NAMES}&display=block" rel="stylesheet">
 <style>{_STYLE}</style>
 <script>{_TEXT_REVEAL_SCRIPT}
+{_CHAT_TOOL_CHIPS_JS}
 (function() {{
   if (localStorage.getItem('loop-dashboard-sidebar') === '1') {{
     document.documentElement.classList.add('collapsed');
@@ -8506,6 +8571,14 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
             textEl.textContent = value;
             if (streaming) textEl.appendChild(caret); else caret.remove();
             scrollToBottom();
+          }},
+          // The bubble the tool chips go into; created on the first tool call.
+          host: function() {{
+            if (!textEl) {{
+              thinking.remove();
+              textEl = appendBubble('message-bubble-loop', "<span class='k' aria-label='Loop X'>" + {json.dumps(_MESSAGE_BRAND_ICON)} + "</span>", '');
+            }}
+            return textEl.parentNode;
           }}
         }};
       }}
@@ -8538,6 +8611,10 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
         source.addEventListener('chunk', function(ev) {{
           accumulated += JSON.parse(ev.data);
           reveal.set(accumulated);
+        }});
+        var onTool = window.__loopToolChips(pending.host);
+        source.addEventListener('tool', function(ev) {{
+          try {{ onTool(JSON.parse(ev.data)); }} catch (e) {{}}
         }});
         source.addEventListener('done', function(ev) {{
           source.close();
@@ -9102,6 +9179,7 @@ def render_activity_messages_fragment(messages_path=None, session_id=None):
             "<div class='message-body'>"
             f"<div class='message-bubble {'message-bubble-user' if is_user else 'message-bubble-loop'}'>"
             f"<div class='message-meta'>{who_html}<span class='message-time'>{html.escape(relative_time)}</span></div>"
+            f"{chat_tool_chips_html(m.get('tools')) if not is_user else ''}"
             f"<div class='message-text markdown' data-raw=\"{html.escape(text, quote=True)}\">{render_markdown(text)}</div>"
             "</div>"
             "<div class='message-actions'>"
