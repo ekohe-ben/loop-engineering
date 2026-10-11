@@ -611,3 +611,42 @@ def test_calendar_list_events_returns_prep_details():
     assert first["self_response"] == "accepted"
     assert second["join_url"] == "https://meet.google.com/abc"
     assert second["recurring_event_id"] == "" and second["attendees"] == [] and second["self_response"] is None
+
+
+class _FakeMailProvider:
+    def __init__(self):
+        self.calls = []
+
+    def search_messages(self, query, limit):
+        self.calls.append(("search", query, limit))
+        return [{"id": "m1"}]
+
+    def read_message(self, message_id):
+        self.calls.append(("read", message_id))
+        return {"id": message_id}
+
+
+def test_mailbox_search_and_read_use_the_inbox_provider():
+    from connectors.base import ConnectorError
+    cls = connectors.get_type("mailbox")
+    fake = _FakeMailProvider()
+    seen = {}
+
+    def factory(inbox, token, refresh):
+        seen["inbox"], seen["token"] = inbox, token
+        return fake
+
+    box = {"name": "work", "provider": "gmail", "account": "me@x.com"}
+    conn = cls({"id": "work", "type": "mailbox"}, inbox_fn=lambda name: box,
+               token_fn=lambda inbox: "tok", provider_factory=factory)
+    assert conn.search_messages("invoice", 5) == [{"id": "m1"}]
+    assert conn.read_message("m1") == {"id": "m1"}
+    assert seen == {"inbox": box, "token": "tok"}
+
+    def reauth(inbox):
+        import mail_auth
+        raise mail_auth.ReauthRequired("work is not connected")
+    bad = cls({"id": "work", "type": "mailbox"}, inbox_fn=lambda name: box, token_fn=reauth,
+              provider_factory=factory)
+    with pytest.raises(ConnectorError, match="not connected"):
+        bad.search_messages("x", 1)

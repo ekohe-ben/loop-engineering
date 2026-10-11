@@ -51,7 +51,7 @@ def register(tool):
 
 def _load_all():
     # Imported lazily so `import chat_tools.registry` stays cheap and cycle-free.
-    from chat_tools import documents, github, gitlab, rss  # noqa: F401
+    from chat_tools import calendar, documents, github, gitlab, mail, rss  # noqa: F401
 
 
 def untrusted(text):

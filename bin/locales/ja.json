@@ -952,10 +952,16 @@
   "Commenting on issue": "Issue にコメント中",
   "Reading pull request": "プルリクエストを読み取り中",
   "Commenting": "コメント中",
+  "Reading calendar": "カレンダーを読み取り中",
   "Reading feed": "フィードを読み取り中",
   "Saving document": "ドキュメントを保存中",
   "Document": "ドキュメント",
   "Download": "ダウンロード",
   "Close document": "ドキュメントを閉じる",
-  "Could not load the document.": "ドキュメントを読み込めませんでした。"
+  "Could not load the document.": "ドキュメントを読み込めませんでした。",
+  "Searching mail": "メールを検索中",
+  "Reading email": "メールを読み取り中",
+  "Mailbox is not configured": "メールボックスが設定されていません",
+  "Could not read the mailbox credentials": "メールボックスの認証情報を読み取れませんでした",
+  "Sign-in expired - reconnect this inbox": "サインインの有効期限が切れました。このメールボックスを再接続してください"
 }

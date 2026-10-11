@@ -952,10 +952,16 @@
   "Commenting on issue": "Commentaire sur le ticket",
   "Reading pull request": "Lecture de la pull request",
   "Commenting": "Commentaire en cours",
+  "Reading calendar": "Lecture de l'agenda",
   "Reading feed": "Lecture du flux",
   "Saving document": "Enregistrement du document",
   "Document": "Document",
   "Download": "Télécharger",
   "Close document": "Fermer le document",
-  "Could not load the document.": "Impossible de charger le document."
+  "Could not load the document.": "Impossible de charger le document.",
+  "Searching mail": "Recherche de courriels",
+  "Reading email": "Lecture du courriel",
+  "Mailbox is not configured": "La boîte mail n'est pas configurée",
+  "Could not read the mailbox credentials": "Impossible de lire les identifiants de la boîte mail",
+  "Sign-in expired - reconnect this inbox": "La connexion a expiré - reconnectez cette boîte mail"
 }

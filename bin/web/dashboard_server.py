@@ -1880,6 +1880,9 @@ def tool_label(name):
         "github.read_pr": _t("Reading pull request"),
         "github.comment": _t("Commenting"),
         "rss.read_feed": _t("Reading feed"),
+        "calendar.list_events": _t("Reading calendar"),
+        "mail.search": _t("Searching mail"),
+        "mail.read": _t("Reading email"),
         "docs.save": _t("Saving document"),
     }
     return labels.get(name, name)
@@ -1888,7 +1891,7 @@ def tool_label(name):
 def _tool_label_names():
     """Tool names tool_label knows (for the client-side label map)."""
     return ("gitlab.read_issue", "gitlab.list_issues", "gitlab.comment", "github.read_issue",
-            "github.read_pr", "github.comment", "rss.read_feed", "docs.save")
+            "github.read_pr", "github.comment", "rss.read_feed", "calendar.list_events", "mail.search", "mail.read", "docs.save")
 
 
 def merge_tool_events(events):

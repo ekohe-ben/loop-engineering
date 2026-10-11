@@ -21,7 +21,7 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
   processed, and the document panel has a Copy button that copies the whole document
   as markdown.
 - The dashboard chat can now call connector tools (GitLab and GitHub issues, pull
-  requests and comments, RSS feeds, saved markdown documents), shows each tool call as
+  requests and comments, RSS feeds, Google Calendar events, mailbox search and reading, saved markdown documents), shows each tool call as
   a chip on the reply, and asks for an Approve click before any write action.
 - The dashboard overview shows a Live link for each enabled Meeting Prep and Inbox
   Triage loop.

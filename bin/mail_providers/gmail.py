@@ -145,6 +145,31 @@ class GmailProvider(BaseProvider):
         rows.sort(key=lambda r: r["date"], reverse=True)
         return rows
 
+    def search_messages(self, query, limit):
+        """Newest `limit` messages matching a Gmail search query: id, subject,
+        from, date, snippet - never bodies."""
+        params = {"q": str(query), "maxResults": int(limit)}
+        page = self._call("GET", f"/users/me/messages?{urllib.parse.urlencode(params)}")
+        rows = []
+        for ref in page.get("messages", [])[:int(limit)]:
+            meta = urllib.parse.urlencode([("format", "metadata"), ("metadataHeaders", "From"),
+                                           ("metadataHeaders", "Subject")])
+            raw = self._call("GET", f"/users/me/messages/{ref['id']}?{meta}")
+            headers = (raw.get("payload") or {}).get("headers") or []
+            rows.append({
+                "id": ref["id"], "subject": _header(headers, "Subject") or "",
+                "from": _header(headers, "From") or "",
+                "date": datetime.fromtimestamp(int(raw.get("internalDate") or 0) / 1000, timezone.utc).isoformat(),
+                "snippet": raw.get("snippet") or "",
+            })
+        return rows
+
+    def read_message(self, message_id):
+        """One message with its (trimmed) body text; no private threading fields."""
+        message = parse_gmail_message(
+            self._call("GET", f"/users/me/messages/{urllib.parse.quote(str(message_id), safe='')}?format=full"))
+        return {k: v for k, v in message.items() if not k.startswith("_") and k != "prior_thread"}
+
     def _prior_thread(self, message):
         thread = self._call("GET", f"/users/me/threads/{message['thread_id']}?format=full")
         # Never feed the loop's own earlier drafts in this thread back to the AI.

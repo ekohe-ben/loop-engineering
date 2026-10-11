@@ -152,6 +152,26 @@ def test_create_reply_draft_uses_create_reply_comment():
     assert link == "https://outlook.office.com/owa/?ItemID=d1"
 
 
+def test_search_messages_uses_search_without_quotes_and_returns_rows():
+    with StubServer() as stub:
+        stub.add("GET", f"{V}/messages", body={"value": [
+            {"id": "m1", "subject": "S", "from": {"emailAddress": {"name": "Ann", "address": "ann@x.com"}},
+             "receivedDateTime": "2026-10-06T07:00:00Z", "bodyPreview": "p"}]})
+        rows = _provider(stub).search_messages('inv"oice', 5)
+        query = stub.requests[0]["query"]
+    assert query["$search"] == ['"inv oice"'] and query["$top"] == ["5"]
+    assert rows == [{"id": "m1", "subject": "S", "from": "Ann <ann@x.com>",
+                     "date": "2026-10-06T07:00:00+00:00", "snippet": "p"}]
+
+
+def test_read_message_returns_public_fields_only():
+    with StubServer() as stub:
+        stub.add("GET", f"{V}/messages/m1", body=_raw("m1", body="Hello body"))
+        message = _provider(stub).read_message("m1")
+    assert message["body_text"] == "Hello body" and "prior_thread" not in message
+    assert not [k for k in message if k.startswith("_")]
+
+
 def test_outlook_source_has_no_send_and_only_interface_methods():
     source = (REPO_ROOT / "bin" / "mail_providers" / "outlook.py").read_text()
     assert not re.search(r"(?i)\bsend(mail)?\b|/send", source)

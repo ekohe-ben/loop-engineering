@@ -84,6 +84,30 @@ class OutlookProvider(BaseProvider):
         rows.sort(key=lambda r: r["date"], reverse=True)
         return rows[:int(limit)]
 
+    def search_messages(self, query, limit):
+        """Newest `limit` messages matching a free-text search: id, subject,
+        from, date, preview - never bodies."""
+        text = str(query).replace('"', " ").strip()
+        params = {"$search": f'"{text}"', "$select": "id,subject,from,receivedDateTime,bodyPreview",
+                  "$top": int(limit)}
+        page = self._call("GET", f"/me/messages?{urllib.parse.urlencode(params)}")
+        rows = [{"id": raw["id"], "subject": raw.get("subject") or "", "from": _person(raw.get("from")),
+                 "date": _iso(str(raw.get("receivedDateTime") or "1970-01-01T00:00:00Z")),
+                 "snippet": raw.get("bodyPreview") or ""} for raw in page.get("value", [])]
+        rows.sort(key=lambda r: r["date"], reverse=True)
+        return rows[:int(limit)]
+
+    def read_message(self, message_id):
+        """One message with its (trimmed) body text; no private fields."""
+        raw = self._call("GET", f"/me/messages/{urllib.parse.quote(str(message_id), safe='')}"
+                                f"?$select={_SELECT}", headers=_PREFER_TEXT)
+        message = parse_graph_message(raw)
+        if message.pop("_has_attachments", False):
+            atts = self._call("GET", f"/me/messages/{urllib.parse.quote(str(message_id), safe='')}"
+                                     "/attachments?$select=name")
+            message["attachments"] = [a.get("name", "") for a in atts.get("value", [])]
+        return {k: v for k, v in message.items() if not k.startswith("_") and k != "prior_thread"}
+
     def fetch_new(self, since, seen_ids, exclude, limit):
         since_utc = since.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         params = {

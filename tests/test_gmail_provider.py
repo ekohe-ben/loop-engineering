@@ -215,6 +215,27 @@ def test_second_401_raises_auth_expired():
             _provider(stub, refresh=lambda: "tok2").profile_address()
 
 
+def test_search_messages_returns_metadata_rows_without_bodies():
+    with StubServer() as stub:
+        stub.add("GET", f"{U}/messages", body={"messages": [{"id": "m1"}]})
+        stub.add("GET", f"{U}/messages/m1", body={
+            "id": "m1", "internalDate": "1790000000000", "snippet": "snip",
+            "payload": {"headers": [{"name": "From", "value": "Al <al@x.com>"}, {"name": "Subject", "value": "Hi"}]}})
+        rows = _provider(stub).search_messages("from:al invoice", 5)
+        query = stub.requests[0]["query"]
+    assert query["q"] == ["from:al invoice"] and query["maxResults"] == ["5"]
+    assert rows == [{"id": "m1", "subject": "Hi", "from": "Al <al@x.com>",
+                     "date": datetime.fromtimestamp(1790000000, timezone.utc).isoformat(), "snippet": "snip"}]
+
+
+def test_read_message_returns_public_fields_only():
+    with StubServer() as stub:
+        stub.add("GET", f"{U}/messages/m1", body=_raw("m1"))
+        message = _provider(stub).read_message("m1")
+    assert message["subject"] == "Hello" and message["body_text"] == "Hi there"
+    assert not [k for k in message if k.startswith("_")] and "prior_thread" not in message
+
+
 def test_gmail_source_has_no_send_and_only_interface_methods():
     for name in ("gmail.py", "base.py"):
         source = (REPO_ROOT / "bin" / "mail_providers" / name).read_text()

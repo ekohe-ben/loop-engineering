@@ -5,7 +5,7 @@ import re
 import mail_http
 
 PUBLIC_METHODS = {"profile_address", "fetch_new", "ensure_labels", "apply_label", "create_reply_draft",
-                  "search_recent"}
+                  "search_recent", "search_messages", "read_message"}
 
 _PLAIN_ADDRESS = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
 MAX_SEARCH_ADDRESSES = 10
