@@ -2447,12 +2447,6 @@ def test_daemons_page_shows_flash_banner_after_a_real_post_redirect(tmp_path, mo
             assert "Loaded com.example.toggle.plist" in body
 
 
-@pytest.mark.xfail(
-    reason="pre-existing bug: test expects launchd/com.hermes.loop-engineering.plist "
-    "but the repo now ships launchd/*.plist.template - test wasn't updated after the "
-    "template rename, tracked separately, out of scope here",
-    strict=False,
-)
 def test_do_post_uses_current_module_level_launchd_dir_not_the_defs_bound_default(
         tmp_path, monkeypatch):
     """Test-isolation regression test for the def-time-default gotcha.
@@ -2479,8 +2473,9 @@ def test_do_post_uses_current_module_level_launchd_dir_not_the_defs_bound_defaul
     """
     real_name = "com.hermes.loop-engineering.plist"
     scratch_only_name = "com.example.scratch-only.plist"
-    assert (REAL_LAUNCHD_DIR / real_name).exists(), (
-        "precondition: this filename must really exist in the repo's launchd/ dir "
+    real_source = REAL_LAUNCHD_DIR / f"{real_name}.template"
+    assert real_source.exists(), (
+        "precondition: the repo must really ship this loop's plist template "
         "for this test to be a meaningful isolation proof")
     assert not (REAL_LAUNCHD_DIR / scratch_only_name).exists(), (
         "precondition: this filename must NOT exist in the repo's launchd/ dir")
@@ -2515,7 +2510,7 @@ def test_do_post_uses_current_module_level_launchd_dir_not_the_defs_bound_defaul
     # this entirely, since the source path never appears there.
     installed = (scratch_agents / real_name).read_bytes()
     assert installed == (scratch_launchd / real_name).read_bytes()
-    assert installed != (REAL_LAUNCHD_DIR / real_name).read_bytes(), (
+    assert installed != real_source.read_bytes(), (
         "the REAL main GitLab loop plist was installed - LAUNCHD_DIR isolation is broken")
 
     # Everything launchctl was pointed at lives inside the scratch dir, and
@@ -3390,12 +3385,9 @@ def test_gitlab_mark_sized_to_match_the_tab_buttons_material_icon():
     assert "font-size: 16px" in material_icon_rule
 
 
-@pytest.mark.xfail(
-    reason="pre-existing bug: expected 4 icon buttons, rendered page has 2 - "
-    "tracked separately, out of scope here",
-    strict=False,
-)
 def test_settings_add_and_delete_buttons_carry_icons(monkeypatch, tmp_path):
+    # Tracked loop projects come from the machine's real projects.json otherwise.
+    monkeypatch.setattr(ds, "read_loop_projects_config", lambda *a, **k: {})
     gitlab_path = tmp_path / "gitlab.json"
     ds.write_gitlab_config({"default": "a", "instances": {"a": {"url": "https://a.example.com", "token": "t"}}, "projects": {"p": {"project_id": "ns/p", "instance": "a"}}}, gitlab_path)
     monkeypatch.setattr(ds, "GITLAB_CONFIG_PATH", gitlab_path)
@@ -3408,12 +3400,9 @@ def test_settings_add_and_delete_buttons_carry_icons(monkeypatch, tmp_path):
     assert output.count("<span class='material-symbols-outlined' aria-hidden='true'>delete</span> Delete</button>") == 2
 
 
-@pytest.mark.xfail(
-    reason="pre-existing bug: expected 4 icon buttons, rendered page has 2 - "
-    "tracked separately, out of scope here",
-    strict=False,
-)
 def test_settings_page_icon_buttons_are_aria_hidden(monkeypatch, tmp_path):
+    # Tracked loop projects come from the machine's real projects.json otherwise.
+    monkeypatch.setattr(ds, "read_loop_projects_config", lambda *a, **k: {})
     gitlab_path = tmp_path / "gitlab.json"
     ds.write_gitlab_config({"default": "a", "instances": {"a": {"url": "https://a.example.com", "token": "t"}}, "projects": {"p": {"project_id": "ns/p", "instance": "a"}}}, gitlab_path)
     monkeypatch.setattr(ds, "GITLAB_CONFIG_PATH", gitlab_path)
@@ -4967,11 +4956,6 @@ def test_delete_history_file_rejects_non_md_and_path_traversal(tmp_path):
     assert outside.read_text() == "keep me"
 
 
-@pytest.mark.xfail(
-    reason="pre-existing bug: rendered page is missing its csrf_token hidden input - "
-    "tracked separately, out of scope here",
-    strict=False,
-)
 def test_history_delete_route_success(monkeypatch, tmp_path):
     history_dir = tmp_path / "history"
     history_dir.mkdir()
@@ -4999,11 +4983,6 @@ def test_history_delete_route_requires_csrf(monkeypatch, tmp_path):
     assert (history_dir / "2026-08-21.md").exists()
 
 
-@pytest.mark.xfail(
-    reason="pre-existing bug: rendered page is missing its csrf_token hidden input - "
-    "tracked separately, out of scope here",
-    strict=False,
-)
 def test_topic_monitor_history_delete_route_success(monkeypatch, tmp_path):
     topic_history_dir = tmp_path / "topic-history"
     topic_history_dir.mkdir()
@@ -5842,11 +5821,6 @@ def test_render_topic_settings_page_includes_add_topic_form(monkeypatch):
     assert "class='topic-row-switch-spacer'" in output
 
 
-@pytest.mark.xfail(
-    reason="pre-existing bug: rendered page is missing its csrf_token hidden input - "
-    "tracked separately, out of scope here",
-    strict=False,
-)
 def test_topic_monitor_topics_route_add_success(monkeypatch, tmp_path):
     topics_path = tmp_path / "topics.json"
     monkeypatch.setattr(topic_config, "DEFAULT_CONFIG_PATH", topics_path)
@@ -5860,11 +5834,6 @@ def test_topic_monitor_topics_route_add_success(monkeypatch, tmp_path):
     assert topic_config.get_topic("ai-news", topics_path)["label"] == "AI news"
 
 
-@pytest.mark.xfail(
-    reason="pre-existing bug: rendered page is missing its csrf_token hidden input - "
-    "tracked separately, out of scope here",
-    strict=False,
-)
 def test_topic_monitor_topics_route_edit_success(monkeypatch, tmp_path):
     topics_path = tmp_path / "topics.json"
     topic_config.upsert_topic("ai-news", "AI news", "Old brief.", "", topics_path)
@@ -5960,11 +5929,6 @@ def test_topic_monitor_topics_route_requires_csrf(monkeypatch, tmp_path):
     assert not topics_path.exists()
 
 
-@pytest.mark.xfail(
-    reason="pre-existing bug: rendered page is missing its csrf_token hidden input - "
-    "tracked separately, out of scope here",
-    strict=False,
-)
 def test_topic_monitor_topics_delete_route_success(monkeypatch, tmp_path):
     topics_path = tmp_path / "topics.json"
     topic_config.upsert_topic("ai-news", "AI news", "Brief.", "", topics_path)
@@ -6081,11 +6045,6 @@ def test_trigger_topic_monitor_run_launches_the_script(tmp_path, monkeypatch):
     assert captured["kwargs"]["start_new_session"] is True
 
 
-@pytest.mark.xfail(
-    reason="pre-existing bug: rendered page is missing its csrf_token hidden input - "
-    "tracked separately, out of scope here",
-    strict=False,
-)
 def test_topic_monitor_run_now_route_launches_when_idle(monkeypatch, tmp_path):
     status_path = tmp_path / "status.json"
     ds.write_topic_status("ai-news", "idle", status_path=status_path)
@@ -6105,16 +6064,11 @@ def test_topic_monitor_run_now_route_launches_when_idle(monkeypatch, tmp_path):
         token = _fetch_csrf_token(port, "/daemons")
         status, headers, _body = _post(port, "/topic-monitor/run-now", {"csrf_token": token})
         assert status == 303
-        flash_query = _flash_from_location(headers["Location"], prefix="/topic-monitor?")
+        flash_query = _flash_from_location(headers["Location"], prefix="/loops/topic-loop?")
         assert flash_query["ok"] == ["1"]
     assert captured["args"] == ["bash", str(tmp_path / "run-loop-now.sh"), "topic-loop"]
 
 
-@pytest.mark.xfail(
-    reason="pre-existing bug: rendered page is missing its csrf_token hidden input - "
-    "tracked separately, out of scope here",
-    strict=False,
-)
 def test_topic_monitor_run_now_route_refuses_when_a_topic_is_running(monkeypatch, tmp_path):
     status_path = tmp_path / "status.json"
     ds.write_topic_status("ai-news", "running", status_path=status_path)
@@ -6124,7 +6078,7 @@ def test_topic_monitor_run_now_route_refuses_when_a_topic_is_running(monkeypatch
         token = _fetch_csrf_token(port, "/daemons")
         status, headers, _body = _post(port, "/topic-monitor/run-now", {"csrf_token": token})
         assert status == 303
-        flash_query = _flash_from_location(headers["Location"], prefix="/topic-monitor?")
+        flash_query = _flash_from_location(headers["Location"], prefix="/loops/topic-loop?")
         assert flash_query["ok"] == ["0"]
 
 
@@ -8738,11 +8692,6 @@ def test_activity_route_delete_message_success(monkeypatch, tmp_path):
     assert ds.read_messages(messages_path) == []
 
 
-@pytest.mark.xfail(
-    reason="pre-existing bug: rendered page is missing its csrf_token hidden input - "
-    "tracked separately, out of scope here",
-    strict=False,
-)
 def test_run_now_route_launches_when_idle(monkeypatch, tmp_path):
     status_path = tmp_path / "status.json"
     ds.write_status("idle", status_path=status_path)
@@ -8772,11 +8721,6 @@ def test_run_now_route_launches_when_idle(monkeypatch, tmp_path):
     assert captured["args"] == ["bash", str(tmp_path / "run-loop-now.sh"), "gitlab-loop"]
 
 
-@pytest.mark.xfail(
-    reason="pre-existing bug: rendered page is missing its csrf_token hidden input - "
-    "tracked separately, out of scope here",
-    strict=False,
-)
 def test_run_now_route_refuses_when_already_running(monkeypatch, tmp_path):
     status_path = tmp_path / "status.json"
     ds.write_status("running", status_path=status_path)
@@ -8804,11 +8748,6 @@ def test_run_now_route_requires_csrf(tmp_path, monkeypatch):
         assert status == 403
 
 
-@pytest.mark.xfail(
-    reason="pre-existing bug: rendered page is missing its csrf_token hidden input - "
-    "tracked separately, out of scope here",
-    strict=False,
-)
 def test_gitlab_stop_route_stops_a_running_loop(monkeypatch, tmp_path):
     status_path = tmp_path / "status.json"
     proc = subprocess.Popen(["bash", "-c", "sleep 30"], start_new_session=True)
@@ -8840,11 +8779,6 @@ def test_gitlab_stop_route_requires_csrf(tmp_path, monkeypatch):
         assert status == 403
 
 
-@pytest.mark.xfail(
-    reason="pre-existing bug: rendered page is missing its csrf_token hidden input - "
-    "tracked separately, out of scope here",
-    strict=False,
-)
 def test_topic_monitor_stop_route_stops_a_running_topic(monkeypatch, tmp_path):
     monkeypatch.setattr(ds, "LOOP_DIR", tmp_path)
     status_path = ds.status_path_for_loop("topic-loop", base_dir=tmp_path)
@@ -8880,11 +8814,6 @@ def test_topic_monitor_stop_route_requires_csrf(tmp_path, monkeypatch):
         assert status == 403
 
 
-@pytest.mark.xfail(
-    reason="pre-existing bug: rendered page is missing its csrf_token hidden input - "
-    "tracked separately, out of scope here",
-    strict=False,
-)
 def test_skills_install_route_launches_when_idle(monkeypatch, tmp_path):
     status_path = tmp_path / "skills_install_status.json"
     setup_script_path = tmp_path / "setup.sh"
@@ -8904,16 +8833,11 @@ def test_skills_install_route_launches_when_idle(monkeypatch, tmp_path):
         token = _fetch_csrf_token(port, "/daemons")
         status, headers, _body = _post(port, "/skills/install", {"csrf_token": token})
         assert status == 303
-        flash_query = _flash_from_location(headers["Location"], prefix="/skills?")
+        flash_query = _flash_from_location(headers["Location"], prefix="/settings?view=skills&")
         assert flash_query["ok"] == ["1"]
     assert str(setup_script_path) in captured["args"][2]
 
 
-@pytest.mark.xfail(
-    reason="pre-existing bug: rendered page is missing its csrf_token hidden input - "
-    "tracked separately, out of scope here",
-    strict=False,
-)
 def test_skills_install_route_refuses_when_already_installing(monkeypatch, tmp_path):
     status_path = tmp_path / "skills_install_status.json"
     ds.write_status("installing", status_path=status_path)
@@ -8923,7 +8847,7 @@ def test_skills_install_route_refuses_when_already_installing(monkeypatch, tmp_p
         token = _fetch_csrf_token(port, "/daemons")
         status, headers, _body = _post(port, "/skills/install", {"csrf_token": token})
         assert status == 303
-        flash_query = _flash_from_location(headers["Location"], prefix="/skills?")
+        flash_query = _flash_from_location(headers["Location"], prefix="/settings?view=skills&")
         assert flash_query["ok"] == ["0"]
 
 

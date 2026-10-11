@@ -130,6 +130,7 @@
   "Connector id {id} is already used by another account": "L'identifiant de connecteur {id} est déjà utilisé par un autre compte",
   "Context text elements": "Éléments de texte de contexte",
   "Copy": "Copier",
+  "Copied": "Copié",
   "Copy message": "Copier le message",
   "Cost": "Coût",
   "Cost ($)": "Coût ($)",

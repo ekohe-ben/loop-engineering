@@ -17,6 +17,9 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
   `project#N` reference instead of the raw tool path and full URL, and clicking a saved
   document link opens it in a right-hand panel beside the thread (with a Download button)
   instead of downloading it.
+- Chat tool calls now show a spinner while running and a check (or error) icon once
+  processed, and the document panel has a Copy button that copies the whole document
+  as markdown.
 - The dashboard chat can now call connector tools (GitLab and GitHub issues, pull
   requests and comments, RSS feeds, saved markdown documents), shows each tool call as
   a chip on the reply, and asks for an Approve click before any write action.

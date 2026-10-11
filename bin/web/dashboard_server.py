@@ -5699,10 +5699,15 @@ html.doc-panel-open .doc-panel {{ display: flex; }}
   .doc-panel {{ left: var(--shell-gap); width: auto; z-index: 120; }}
 }}
 .tool-chips {{ display: flex; flex-direction: column; align-items: flex-start; gap: 0.3rem; margin-bottom: 0.5rem; }}
-.tool-chip {{ font-size: 0.75rem; padding: 0.15rem 0.55rem; border-radius: 999px; background: var(--md-surface-container-high); color: var(--md-on-surface-variant); }}
-.tool-chip-ok {{ background: color-mix(in srgb, var(--md-primary) 14%, var(--md-surface)); }}
-.tool-chip-err {{ background: color-mix(in srgb, var(--md-error) 16%, var(--md-surface)); }}
-.tool-chip-run {{ opacity: 0.7; }}
+.tool-chip {{ display: inline-flex; align-items: center; gap: 0.35rem; max-width: 100%; font-size: 0.8rem; padding: 0.2rem 0.65rem 0.2rem 0.4rem; border-radius: 999px; background: var(--md-surface-container-high); color: var(--md-on-surface-variant); }}
+.tool-chip-text {{ min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
+.tool-chip-icon {{ flex: none; font-size: 1.05rem; }}
+.tool-chip-ok {{ background: color-mix(in srgb, var(--md-primary) 12%, var(--md-surface)); }}
+.tool-chip-ok .tool-chip-icon {{ color: var(--md-primary); }}
+.tool-chip-err {{ background: color-mix(in srgb, var(--md-error) 14%, var(--md-surface)); }}
+.tool-chip-err .tool-chip-icon {{ color: var(--md-error); }}
+.tool-chip-run .tool-chip-icon {{ animation: tool-chip-spin 1s linear infinite; }}
+@keyframes tool-chip-spin {{ to {{ transform: rotate(360deg); }} }}
 .pending-card {{ display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.5rem; padding: 0.75rem; border-radius: 12px; border: 1px solid var(--md-outline-variant); background: var(--md-surface-container); }}
 .pending-card-head {{ display: flex; align-items: center; gap: 0.4rem; font-weight: 500; }}
 .pending-card-head .material-symbols-outlined {{ font-size: 1.1rem; color: var(--md-primary); }}
@@ -7675,11 +7680,20 @@ window.__loopToolChips = function(host, getSession) {
       }
       chip = document.createElement('span');
       chip.className = 'tool-chip tool-chip-run';
-      chip.textContent = (window.__loopToolLabels[ev.name] || ev.name) + (ev.summary ? ' \\u00b7 ' + ev.summary : '');
+      var icon = document.createElement('span');
+      icon.className = 'material-symbols-outlined tool-chip-icon';
+      icon.setAttribute('aria-hidden', 'true');
+      icon.textContent = 'autorenew';
+      var text = document.createElement('span');
+      text.className = 'tool-chip-text';
+      text.textContent = (window.__loopToolLabels[ev.name] || ev.name) + (ev.summary ? ' \\u00b7 ' + ev.summary : '');
+      chip.appendChild(icon);
+      chip.appendChild(text);
       chips[ev.id] = chip;
       row.appendChild(chip);
     } else if (ev.kind === 'result' && chip) {
       chip.className = 'tool-chip ' + (ev.ok ? 'tool-chip-ok' : 'tool-chip-err');
+      chip.querySelector('.tool-chip-icon').textContent = ev.ok ? 'check_circle' : 'error';
     } else if (ev.kind === 'pending' && row && window.__loopPendingCard) {
       row.parentNode.insertBefore(window.__loopPendingCard(ev, getSession ? getSession() : ''), row.nextSibling);
     }
@@ -7703,8 +7717,10 @@ def chat_tool_chips_html(tools, session=None):
         state = {True: "ok", False: "err"}.get(tool.get("ok"), "run")
         summary = (f" \u00b7 {html.escape(short_tool_ref(str(tool.get('summary'))))}"
                    if tool.get("summary") else "")
+        icon = {"ok": "check_circle", "err": "error"}.get(state, "autorenew")
         chips.append(f'<span class="tool-chip tool-chip-{state}">'
-                     f'{html.escape(tool_label(str(tool.get("name", ""))))}{summary}</span>')
+                     f'<span class="material-symbols-outlined tool-chip-icon" aria-hidden="true">{icon}</span>'
+                     f'<span class="tool-chip-text">{html.escape(tool_label(str(tool.get("name", ""))))}{summary}</span></span>')
         stored = tool.get("pending")
         if session and isinstance(stored, dict) and isinstance(stored.get("pending_id"), str):
             from chat_tools import pending
@@ -8623,6 +8639,40 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
       var docBody = docPanel.querySelector('[data-doc-body]');
       var docDownload = docPanel.querySelector('[data-doc-download]');
       var docFailed = {json.dumps(_t("Could not load the document."))};
+      var docCopy = docPanel.querySelector('[data-doc-copy]');
+      var docCopyIcon = docPanel.querySelector('[data-doc-copy-icon]');
+      var docCopyLabel = docPanel.querySelector('[data-doc-copy-label]');
+      var docCopyText = docCopyLabel.textContent;
+      var docCopiedText = {json.dumps(_t("Copied"))};
+      var docRaw = '';
+      var docCopyTimer = null;
+      function resetCopy() {{
+        clearTimeout(docCopyTimer);
+        docCopyIcon.textContent = 'content_copy';
+        docCopyLabel.textContent = docCopyText;
+      }}
+      docCopy.addEventListener('click', function() {{
+        // Raw markdown, so pasting elsewhere keeps the document's own formatting.
+        var text = docRaw || docBody.innerText;
+        var done = function() {{
+          docCopyIcon.textContent = 'check';
+          docCopyLabel.textContent = docCopiedText;
+          clearTimeout(docCopyTimer);
+          docCopyTimer = setTimeout(resetCopy, 1800);
+        }};
+        if (navigator.clipboard && navigator.clipboard.writeText) {{
+          navigator.clipboard.writeText(text).then(done, function() {{}});
+        }} else {{
+          var ta = document.createElement('textarea');
+          ta.value = text;
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          try {{ if (document.execCommand('copy')) done(); }} catch (e) {{}}
+          document.body.removeChild(ta);
+        }}
+      }});
       function closeDoc() {{ docRoot.classList.remove('doc-panel-open'); }}
       docPanel.querySelector('[data-doc-close]').addEventListener('click', closeDoc);
       document.addEventListener('keydown', function(ev) {{ if (ev.key === 'Escape') closeDoc(); }});
@@ -8635,7 +8685,11 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
         docDownload.setAttribute('href', href);
         docDownload.setAttribute('download', href.split('/').pop());
         docBody.textContent = '';
+        docRaw = '';
+        resetCopy();
         docRoot.classList.add('doc-panel-open');
+        fetch(href).then(function(r) {{ return r.ok ? r.text() : ''; }})
+          .then(function(raw) {{ docRaw = raw; }}).catch(function() {{}});
         fetch(href + '?fragment=1').then(function(r) {{
           if (!r.ok) throw new Error(r.status);
           return r.text();
@@ -9703,6 +9757,7 @@ def _overview_body(flash=None, flash_ok=True, session_id=None):
 <aside class='doc-panel' id='doc-panel' aria-label='{html.escape(_t('Document'))}'>
 <div class='doc-panel-header'>
 <span class='doc-panel-title' data-doc-title></span>
+<button type='button' class='btn btn-neutral' data-doc-copy><span class='material-symbols-outlined' aria-hidden='true' data-doc-copy-icon>content_copy</span><span data-doc-copy-label>{html.escape(_t('Copy'))}</span></button>
 <a class='btn btn-neutral' data-doc-download href='#' download><span class='material-symbols-outlined' aria-hidden='true'>download</span>{html.escape(_t('Download'))}</a>
 <button type='button' class='message-action-btn' data-doc-close aria-label='{html.escape(_t('Close document'))}'><span class='material-symbols-outlined' aria-hidden='true'>close</span></button>
 </div>

@@ -130,6 +130,7 @@
   "Connector id {id} is already used by another account": "コネクタID {id} は別のアカウントで既に使用されています",
   "Context text elements": "コンテキストのテキスト要素",
   "Copy": "コピー",
+  "Copied": "コピーしました",
   "Copy message": "メッセージをコピー",
   "Cost": "コスト",
   "Cost ($)": "コスト（$）",

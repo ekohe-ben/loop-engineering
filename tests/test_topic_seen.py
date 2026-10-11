@@ -29,13 +29,8 @@ def test_add_seen_is_scoped_per_topic(tmp_path):
     assert topic_seen.get_seen("rust-lang", state_dir=tmp_path) == [{"url": "https://example.com/b", "title": "Story B"}]
 
 
-@pytest.mark.xfail(
-    reason="pre-existing bug: get_seen returns [] instead of pruning only entries "
-    "older than SEEN_WINDOW_DAYS - tracked separately, out of scope here",
-    strict=False,
-)
 def test_get_seen_prunes_entries_older_than_the_window(tmp_path):
-    now = datetime(2026, 8, 22, tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)  # get_seen prunes against the real clock
     old = now - timedelta(days=topic_seen.SEEN_WINDOW_DAYS + 1)
     topic_seen.add_seen("ai-news", "https://example.com/old", "Old story", state_dir=tmp_path, now=old)
     topic_seen.add_seen("ai-news", "https://example.com/new", "New story", state_dir=tmp_path, now=now)

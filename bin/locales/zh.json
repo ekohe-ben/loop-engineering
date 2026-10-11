@@ -130,6 +130,7 @@
   "Connector id {id} is already used by another account": "连接器 ID {id} 已被其他账户使用",
   "Context text elements": "上下文文本元素",
   "Copy": "复制",
+  "Copied": "已复制",
   "Copy message": "复制消息",
   "Cost": "成本",
   "Cost ($)": "成本（$）",
