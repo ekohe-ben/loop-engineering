@@ -791,6 +791,28 @@ def test_eval_golden_rejects_bad_arguments(monkeypatch, tmp_path):
     assert not (tmp_path / "golden-last.json").exists()
 
 
+def test_eval_chat_uses_the_chat_suite_with_its_own_default_budget(monkeypatch, tmp_path, capsys):
+    sys.path.insert(0, str(REPO_ROOT / "bin"))
+    import chat_eval
+    import loop_cli
+
+    seen = {}
+    outcomes = {"results": [{"name": "injection-in-issue", "passed": True, "reasons": [], "cost_usd": 0.1}],
+                "not_run": [], "spent_usd": 0.1}
+
+    def fake_suite(cases, budget_usd=3.0, run_case=None):
+        seen["names"], seen["budget"] = [c["name"] for c in cases], budget_usd
+        return outcomes
+
+    monkeypatch.setattr(chat_eval, "run_suite", fake_suite)
+    monkeypatch.setattr(chat_eval, "DEFAULT_LAST_RUN_PATH", tmp_path / "chat-last.json")
+    assert loop_cli.main(["eval", "--chat", "--case", "injection-in-issue"]) == 0
+    assert seen == {"names": ["injection-in-issue"], "budget": 3.0}
+    assert "PASS  injection-in-issue" in capsys.readouterr().out
+    assert loop_cli.main(["eval", "--chat", "--case", "nope"]) == 2
+    assert loop_cli.main(["eval", "--chat", "--budget-usd", "0"]) == 2
+
+
 def test_scripted_eval_writes_last_json(monkeypatch, tmp_path, capsys):
     import json
     sys.path.insert(0, str(REPO_ROOT / "bin"))

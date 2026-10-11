@@ -26,6 +26,9 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 - Settings has a Chat tools tab where you can choose, per tool, to skip the Approve click for a
   chat write action (comment, send email, create event). Every tool still waits for approval by
   default.
+- `loop eval --chat` runs a small paid suite (about 5 cents a case) that checks the dashboard
+  chat's behavior with canned connectors: writes stop at the Approve card, issue text is never
+  obeyed, and a skipped review really runs.
 - The dashboard overview shows a Live link for each enabled Meeting Prep and Inbox
   Triage loop.
 - `build_macos_app.sh --dmg` packs `dist/Loop X.dmg`, and `rebuild_macos_app.sh` pulls the

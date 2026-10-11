@@ -401,28 +401,38 @@ def _cmd_eval_golden(argv):
     """`eval --golden [--budget-usd N] [--case NAME]...` - the paid suite:
     the real agent on synthetic fixture repos (bin/golden_eval.py)."""
     import golden_eval
+    return _run_paid_suite(argv, golden_eval, "golden", "10")
 
-    raw_budget = _parse_flag(argv, "--budget-usd", "10")
+
+def _cmd_eval_chat(argv):
+    """`eval --chat [--budget-usd N] [--case NAME]...` - the paid suite for the
+    dashboard chat's prompt and tools, against canned connectors (bin/chat_eval.py)."""
+    import chat_eval
+    return _run_paid_suite(argv, chat_eval, "chat", "3")
+
+
+def _run_paid_suite(argv, suite, label, default_budget):
+    raw_budget = _parse_flag(argv, "--budget-usd", default_budget)
     try:
         budget = float(raw_budget)
     except ValueError:
         budget = 0.0
     if budget <= 0:
-        print(f"eval --golden: --budget-usd must be a positive number, got {raw_budget!r}", file=sys.stderr)
+        print(f"eval --{label}: --budget-usd must be a positive number, got {raw_budget!r}", file=sys.stderr)
         return 2
     names = [argv[i + 1] for i, a in enumerate(argv[:-1]) if a == "--case"]
     try:
-        cases = golden_eval.load_cases(names=names or None)
+        cases = suite.load_cases(names=names or None)
     except ValueError as exc:
-        print(f"eval --golden: {exc}", file=sys.stderr)
+        print(f"eval --{label}: {exc}", file=sys.stderr)
         return 2
     if not cases:
-        print("eval --golden: no golden cases found", file=sys.stderr)
+        print(f"eval --{label}: no {label} cases found", file=sys.stderr)
         return 2
 
-    summary = golden_eval.run_suite(cases, budget_usd=budget)
+    summary = suite.run_suite(cases, budget_usd=budget)
     # A --case subset is not the canonical record; don't overwrite the full run.
-    path = golden_eval.write_last_run(summary, budget_usd=budget) if not names else None
+    path = suite.write_last_run(summary, budget_usd=budget) if not names else None
     for result in summary["results"]:
         cost = result.get("cost_usd")
         cost_text = f"${cost:.2f}" if cost is not None else "cost unknown"
@@ -433,9 +443,9 @@ def _cmd_eval_golden(argv):
         print(f"NOT RUN  {name}  (budget spent)")
     passed = sum(1 for r in summary["results"] if r["passed"])
     print()
-    print(f"{passed}/{len(cases)} golden cases passed, ${summary['spent_usd']:.2f} of ${budget:.2f} spent")
+    print(f"{passed}/{len(cases)} {label} cases passed, ${summary['spent_usd']:.2f} of ${budget:.2f} spent")
     print(f"Summary written to {path}" if path else "Summary not recorded (--case subset)")
-    return golden_eval.exit_code(summary)
+    return suite.exit_code(summary)
 
 
 def _write_eval_last(outcomes, path=None):
@@ -463,6 +473,8 @@ def _write_eval_last(outcomes, path=None):
 def _cmd_eval(argv):
     if "--golden" in argv:
         return _cmd_eval_golden([a for a in argv if a != "--golden"])
+    if "--chat" in argv:
+        return _cmd_eval_chat([a for a in argv if a != "--chat"])
     cases_dir = Path(argv[0]) if argv else DEFAULT_EVAL_CASES_DIR
     if not cases_dir.is_dir():
         print(f"eval: no such directory {cases_dir}", file=sys.stderr)

@@ -223,6 +223,20 @@ afterwards.
 Fixtures stay synthetic: never put real issue text or project names in a
 case.
 
+The dashboard chat has its own paid suite, since the golden one never exercises the
+chat prompt: any change to `_CHAT_ASSISTANT_SYSTEM_PROMPT`, `_CHAT_TOOLS_PROMPT`,
+`build_chat_command`'s flags, or a `bin/chat_tools/` tool description or write
+behavior must paste a before/after `python3 bin/loop_cli.py eval --chat
+[--budget-usd N] [--case NAME]` summary in the PR (default budget $3, about $0.05
+a case; cases under `evals/chat/<name>/case.yaml`, written to
+`outputs/evals/chat-last.json`). It runs the dashboard's real `claude -p` command
+with its one allowed Bash command pointed at a sandbox copy of
+`evals/chat/stub_dashboard.py`, which drives the real tool registry against canned
+connectors, so nothing reaches GitLab, mail or the calendar and no real Keychain or
+`~/.loop-engineering` is read. It grades tool calls, side effects and the reply
+(a write must stop at the Approve card; issue text must never be obeyed). The
+real `HOME` is kept so `claude` can authenticate, as with the golden suite.
+
 ## Dependency injection, resolved at call time — not def time
 
 Module-level constants (`STATUS_PATH`, `LAUNCHD_DIR`, `SKILLS_ROOT`, etc.)
