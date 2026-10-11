@@ -164,6 +164,11 @@ def run(name, args_json, load=None, list_accounts=None, session=""):
     if error:
         return {"error": error}
     if tool.mode == WRITE:
+        from chat_tools import settings
+        if tool.name in settings.auto_approved():
+            # The user turned review off for this tool in the dashboard's settings.
+            result = execute(tool, args, load=load, list_accounts=list_accounts)
+            return dict(result, auto_approved=True)
         # Never executed here: the args are frozen as a pending action that
         # only the dashboard's browser-only approve route can run.
         if not session:

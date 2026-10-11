@@ -14802,3 +14802,34 @@ def test_chat_doc_fragment_renders_markdown_and_rejects_bad_names(tmp_path, monk
 def test_chat_page_has_a_doc_panel_that_narrows_the_thread():
     assert "html.doc-panel-open" in ds._STYLE
     assert "--shell-right" in ds._STYLE.split("html.doc-panel-open")[1].split("}")[0]
+
+
+# --- chat tool review settings ---------------------------------------------
+
+@pytest.fixture
+def chat_tool_settings(tmp_path, monkeypatch):
+    from chat_tools import settings
+    monkeypatch.setattr(settings, "DEFAULT_PATH", tmp_path / "chat_tools.json")
+    return settings
+
+
+def test_chat_tools_settings_post_requires_csrf(chat_tool_settings):
+    with _running_server() as port:
+        assert _post(port, "/settings/chat-tools", {"auto_approve": "gitlab.comment"})[0] == 403
+        assert _post(port, "/settings/chat-tools", {"csrf_token": "wrong", "auto_approve": "gitlab.comment"})[0] == 403
+    assert chat_tool_settings.auto_approved() == set()
+
+
+def test_chat_tools_settings_page_lists_write_tools_and_saves_choice(chat_tool_settings):
+    with _running_server() as port:
+        token = _fetch_csrf_token(port, "/settings?view=chat")
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/settings?view=chat", timeout=10) as response:
+            page = response.read().decode()
+        boxes = re.findall(r"name='auto_approve' value='([^']+)'", page)
+        assert sorted(boxes) == ["calendar.create_event", "github.comment", "gitlab.comment", "mail.send"]
+        status, headers, _ = _post(port, "/settings/chat-tools",
+                                   {"csrf_token": token, "auto_approve": "gitlab.comment"})
+        assert status == 303 and headers["Location"].startswith("/settings?view=chat")
+        assert chat_tool_settings.auto_approved() == {"gitlab.comment"}
+        _post(port, "/settings/chat-tools", {"csrf_token": token})  # nothing ticked clears all
+    assert chat_tool_settings.auto_approved() == set()

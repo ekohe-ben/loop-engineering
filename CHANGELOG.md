@@ -23,6 +23,9 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 - The dashboard chat can now call connector tools (GitLab and GitHub issues, pull
   requests and comments, RSS feeds, Google Calendar events, mailbox search and reading, saved markdown documents), shows each tool call as
   a chip on the reply, and asks for an Approve click before any write action. Approved writes can now also send an email from a Gmail mailbox and create a Google Calendar event (inviting any attendees); Outlook mailboxes cannot send. New Google Calendar sign-ins also request `calendar.events`; reconnect an existing calendar to allow creating events.
+- Settings has a Chat tools tab where you can choose, per tool, to skip the Approve click for a
+  chat write action (comment, send email, create event). Every tool still waits for approval by
+  default.
 - The dashboard overview shows a Live link for each enabled Meeting Prep and Inbox
   Triage loop.
 - `build_macos_app.sh --dmg` packs `dist/Loop X.dmg`, and `rebuild_macos_app.sh` pulls the

@@ -190,8 +190,9 @@ def test_write_tool_with_invalid_args_creates_no_pending_action(tools, monkeypat
 
 def test_execute_is_only_called_from_run_and_the_approve_route():
     """registry.execute runs a tool for real. For a WRITE tool the only
-    legitimate caller is the browser-only approve route, so any new call
-    site must be reviewed against that rule."""
+    legitimate caller is the browser-only approve route (or run() for a tool
+    the user opted out of review for), so any new call site must be reviewed
+    against that rule."""
     import pathlib
     import re
     bin_dir = pathlib.Path(registry.__file__).resolve().parent.parent
@@ -200,8 +201,10 @@ def test_execute_is_only_called_from_run_and_the_approve_route():
         for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             if re.search(r"(?<![\w.])execute\(|registry\.execute\(", line) and "def execute(" not in line:
                 callers.append(f"{path.relative_to(bin_dir)}:{line.strip()}")
+    # registry.run calls it for read/local tools and, for a write tool the user
+    # explicitly set to skip review (chat_tools.settings), once more.
     assert sorted(c.split(":", 1)[0] for c in callers) == [
-        "chat_tools/registry.py", "web/dashboard_server.py"]
+        "chat_tools/registry.py", "chat_tools/registry.py", "web/dashboard_server.py"]
     assert any("registry.execute(tool, record[\"args\"]" in c for c in callers)
 
 
