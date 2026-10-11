@@ -787,9 +787,7 @@
   "Google sign-in failed ({kind})": "Google 登录失败（{kind}）",
   "Not connected": "未连接",
   "Not connected - click Connect with Google": "未连接 - 请点击“使用 Google 连接”",
-  "Read your calendar events (read-only).": "读取你的日历活动（只读）。",
   "Reconnect": "重新连接",
-  "Sign in with Google to grant read-only access. The refresh token is stored in your macOS Keychain, never shown again.": "使用 Google 登录以授予只读访问权限。刷新令牌存储在你的 macOS 钥匙串中，不会再次显示。",
   "Use primary for your main calendar, or a calendar's ID from its Google Calendar settings": "主日历请使用 primary，其他日历请使用其 Google 日历设置中的日历 ID",
   "{type} connects with Google sign-in; it does not take a pasted secret": "{type} 通过 Google 登录连接，不接受粘贴的密钥",
   "{type} does not use Google sign-in": "{type} 不使用 Google 登录",
@@ -963,5 +961,11 @@
   "Reading email": "正在读取邮件",
   "Mailbox is not configured": "邮箱未配置",
   "Could not read the mailbox credentials": "无法读取邮箱凭据",
-  "Sign-in expired - reconnect this inbox": "登录已过期，请重新连接此邮箱"
+  "Sign-in expired - reconnect this inbox": "登录已过期，请重新连接此邮箱",
+  "Sign in with Google to grant calendar access. The refresh token is stored in your macOS Keychain, never shown again.": "使用 Google 登录以授予日历访问权限。刷新令牌存储在你的 macOS 钥匙串中，不会再次显示。",
+  "Read your calendar events and, with your approval in chat, create new ones.": "读取日历事件，并在你于聊天中批准后创建新事件。",
+  "Sending email": "正在发送邮件",
+  "Creating event": "正在创建日程",
+  "Reconnect Google Calendar to grant permission to create events": "请重新连接 Google 日历以授予创建日程的权限",
+  "Sending is only supported for Gmail mailboxes": "仅 Gmail 邮箱支持发送"
 }

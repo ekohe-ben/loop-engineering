@@ -304,7 +304,9 @@ def test_suite_guard_blocks_the_real_keychain(_no_real_keychain):
 def test_google_auth_url_uses_given_scope():
     url = mail_auth.google_auth_url("cid", "http://127.0.0.1:1/oauth/google/callback", "st", "ch",
                                     scope=mail_auth.CALENDAR_SCOPE)
-    assert "scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcalendar.readonly" in url
+    scopes = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)["scope"][0].split()
+    assert scopes == ["https://www.googleapis.com/auth/calendar.readonly",
+                      "https://www.googleapis.com/auth/calendar.events"]
     assert mail_auth.GMAIL_SCOPE not in urllib.parse.unquote(url)
 
 

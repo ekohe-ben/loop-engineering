@@ -650,3 +650,51 @@ def test_mailbox_search_and_read_use_the_inbox_provider():
               provider_factory=factory)
     with pytest.raises(ConnectorError, match="not connected"):
         bad.search_messages("x", 1)
+
+
+def test_calendar_create_event_posts_to_the_events_endpoint():
+    http = FakeHTTP(response={"id": "ev1", "htmlLink": "https://cal.example/ev1"})
+    c = _gcal(http=http)
+    made = c.create_event({"summary": "Sync", "start": "2026-10-12T15:00:00+08:00",
+                           "end": "2026-10-12T15:30:00+08:00", "attendees": ["a@x.com"],
+                           "description": "d", "location": "Room"})
+    call = http.calls[0]
+    assert made == {"id": "ev1", "html_link": "https://cal.example/ev1"}
+    assert call["method"] == "POST" and call["token"] == "AT"
+    assert call["url"] == "https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all"
+    assert call["json"] == {"summary": "Sync", "start": {"dateTime": "2026-10-12T15:00:00+08:00"},
+                            "end": {"dateTime": "2026-10-12T15:30:00+08:00"}, "description": "d",
+                            "location": "Room", "attendees": [{"email": "a@x.com"}]}
+
+
+def test_calendar_create_event_without_attendees_sends_no_invites():
+    http = FakeHTTP(response={"id": "ev1"})
+    _gcal(http=http).create_event({"summary": "Focus", "start": "2026-10-12T15:00:00Z", "end": "2026-10-12T16:00:00Z"})
+    assert http.calls[0]["url"].endswith("/events?sendUpdates=none")
+    assert "attendees" not in http.calls[0]["json"]
+
+
+def test_calendar_create_event_403_asks_to_reconnect():
+    import mail_http
+    from connectors.base import ConnectorError
+    http = FakeHTTP(exc=mail_http.MailHTTPError(403, '{"error":"insufficientPermissions"}', "u"))
+    with pytest.raises(ConnectorError, match="Reconnect"):
+        _gcal(http=http).create_event({"summary": "x", "start": "2026-10-12T15:00:00Z", "end": "2026-10-12T16:00:00Z"})
+
+
+def test_mailbox_send_is_gmail_only_and_uses_the_sender(monkeypatch):
+    import mail_sender
+    from connectors.base import ConnectorError
+    cls = connectors.get_type("mailbox")
+    sent = []
+    monkeypatch.setattr(mail_sender, "send_gmail", lambda *a: sent.append(a) or {"id": "g1", "thread_id": "t"})
+
+    def box(provider):
+        return cls({"id": "work", "type": "mailbox"}, token_fn=lambda inbox: "tok",
+                   inbox_fn=lambda name: {"name": name, "provider": provider, "account": "me@x.com"})
+
+    assert box("gmail").send_message(["a@x.com"], [], "S", "B") == {"id": "g1", "thread_id": "t"}
+    assert sent == [("tok", "me@x.com", ["a@x.com"], [], "S", "B")]
+    with pytest.raises(ConnectorError, match="Gmail"):
+        box("outlook").send_message(["a@x.com"], [], "S", "B")
+    assert len(sent) == 1

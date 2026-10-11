@@ -32,20 +32,17 @@ class MailboxConnector(Connector):
         super().__init__(account, secret=secret, http=http)
         self._inbox_fn, self._token_fn, self._provider_factory = inbox_fn, token_fn, provider_factory
 
-    def _provider(self):
-        """Read-only mail provider for this inbox. Raises ConnectorError with a
-        token-free message (the exception text of auth failures names no token)."""
+    def _open(self):
+        """(inbox, access token, refresh callable) for this mailbox. Raises
+        ConnectorError with a token-free message (auth failures name no token)."""
         import inbox_config
         import mail_auth
         import mail_http
-        import mail_providers
         inbox_fn = self._inbox_fn or inbox_config.get_inbox
         token_fn = self._token_fn or mail_auth.get_access_token
-        factory = self._provider_factory or mail_providers.get_provider
         try:
             inbox = inbox_fn(self.account["id"])
-            token = token_fn(inbox)
-            return factory(inbox, token, lambda: token_fn(inbox))
+            return inbox, token_fn(inbox), lambda: token_fn(inbox)
         except (mail_auth.ReauthRequired, mail_http.AuthExpired) as exc:
             raise ConnectorError(str(exc) or i18n.t("Sign-in expired - reconnect this inbox")) from None
         except KeyError:
@@ -55,8 +52,10 @@ class MailboxConnector(Connector):
 
     def _call(self, method, *args):
         import mail_http
+        import mail_providers
         from connectors.base import describe_http_error
-        provider = self._provider()
+        inbox, token, refresh = self._open()
+        provider = (self._provider_factory or mail_providers.get_provider)(inbox, token, refresh)
         try:
             return getattr(provider, method)(*args)
         except mail_http.MailHTTPError as exc:
@@ -67,3 +66,18 @@ class MailboxConnector(Connector):
 
     def read_message(self, message_id):
         return self._call("read_message", message_id)
+
+    def send_message(self, to, cc, subject, body):
+        """Sends from this mailbox. Gmail only: Outlook's grant has no send scope."""
+        import mail_http
+        import mail_sender
+        from connectors.base import describe_http_error
+        inbox, token, _refresh = self._open()
+        if inbox.get("provider") != "gmail":
+            raise ConnectorError(i18n.t("Sending is only supported for Gmail mailboxes"))
+        try:
+            return mail_sender.send_gmail(token, inbox.get("account", ""), to, cc, subject, body)
+        except mail_sender.SendError as exc:
+            raise ConnectorError(str(exc)) from None
+        except mail_http.MailHTTPError as exc:
+            raise ConnectorError(describe_http_error(exc)) from None

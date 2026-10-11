@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Google Calendar connector (read-only). The stored secret is a Google
+"""Google Calendar connector (reads events; the chat can create one after approval). The stored secret is a Google
 refresh token obtained through the dashboard's Connect with Google flow
 (auth = "oauth_google"); the OAuth client is the one saved on the Inbox
 Triage setup page. No message built here ever contains the refresh token
@@ -36,7 +36,7 @@ class GoogleCalendarConnector(Connector):
                     help="Use primary for your main calendar, or a calendar's ID from its Google Calendar settings"),)
     brand = "googlecalendar"
     category = "google"
-    description = "Read your calendar events (read-only)."
+    description = "Read your calendar events and, with your approval in chat, create new ones."
     docs_url = "https://support.google.com/calendar/answer/37082"
 
     def __init__(self, account, secret=None, http=None, client_fn=None, refresh_fn=None):
@@ -139,6 +139,34 @@ class GoogleCalendarConnector(Connector):
                 "self_response": next((a["response"] for a in people if a["self"]), None),
             })
         return events
+
+    def create_event(self, event):
+        """Creates one event ({summary, start, end, description?, location?,
+        attendees?}; start/end are RFC 3339 with an offset). Invitations go out
+        only when there are attendees. Raises ConnectorError (token-free)."""
+        from connectors.base import ConnectorError
+        token, error = self._access_token()
+        if error:
+            raise ConnectorError(error)
+        body = {"summary": event["summary"], "start": {"dateTime": event["start"]},
+                "end": {"dateTime": event["end"]}}
+        for key in ("description", "location"):
+            if event.get(key):
+                body[key] = event[key]
+        attendees = event.get("attendees") or []
+        if attendees:
+            body["attendees"] = [{"email": a} for a in attendees]
+        notify = "all" if attendees else "none"
+        try:
+            made = self.http("POST", f"{API_URL}{self._calendar_path()}/events?sendUpdates={notify}",
+                             token=token, json_body=body, timeout=30)
+        except Exception as exc:  # noqa: BLE001 - re-raised without token-bearing detail
+            import mail_http
+            if isinstance(exc, mail_http.MailHTTPError) and exc.status in (401, 403):
+                raise ConnectorError(i18n.t("Reconnect Google Calendar to grant permission to create events")) from None
+            raise ConnectorError(self._describe(exc, token)) from None
+        made = made if isinstance(made, dict) else {}
+        return {"id": str(made.get("id") or ""), "html_link": str(made.get("htmlLink") or "")}
 
 
 def _attendee(raw):

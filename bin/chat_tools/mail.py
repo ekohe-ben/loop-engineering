@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Mail chat tools (read-only): search a connected mailbox and read one message.
-Everything in a message is third-party text, so it is wrapped as untrusted.
-There is deliberately no send tool: the mailbox OAuth scopes do not cover it."""
-from chat_tools.registry import Arg, READ, Tool, ToolInputError, register, untrusted
+"""Mail chat tools: search a connected mailbox, read one message, and (after the
+user approves the card) send one from a Gmail mailbox. Everything in a message
+is third-party text, so it is wrapped as untrusted. Outlook has no send: its
+grant lacks Mail.Send and Inbox Triage's grant is kept send-free."""
+from chat_tools.registry import Arg, READ, WRITE, Tool, ToolInputError, register, untrusted
 from connectors.base import ConnectorError
 
 _MAX_LIMIT = 20
@@ -40,3 +41,34 @@ register(Tool(
     name="mail.read", mode=READ, connector_type="mailbox", handler=_read,
     description="Read one message (id from mail.search) with its body text",
     args=(Arg("id"),)))
+
+
+def _addresses(text, label):
+    parts = [p.strip() for p in str(text or "").replace(";", ",").split(",") if p.strip()]
+    if not parts and label == "to":
+        raise ToolInputError("to is required")
+    return parts
+
+
+def _select_gmail(candidates, args):
+    """First mailbox account that is a Gmail inbox (sending is Gmail-only)."""
+    import inbox_config
+    for account in candidates:
+        try:
+            if inbox_config.get_inbox(account["id"]).get("provider") == "gmail":
+                return account["id"]
+        except (KeyError, FileNotFoundError, ValueError):
+            continue
+    return None
+
+
+def _send(connector, args):
+    return _call(connector.send_message, _addresses(args.get("to"), "to"), _addresses(args.get("cc"), "cc"),
+                 str(args["subject"]), str(args["body"]))
+
+
+register(Tool(
+    name="mail.send", mode=WRITE, connector_type="mailbox", handler=_send, select=_select_gmail,
+    description="Send a plain-text email from the user's Gmail mailbox (to/cc: comma-separated plain "
+                "addresses, at most 10 in total; needs the user's approval)",
+    args=(Arg("to"), Arg("subject"), Arg("body"), Arg("cc", required=False))))

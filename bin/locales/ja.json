@@ -787,9 +787,7 @@
   "Google sign-in failed ({kind})": "Google サインインに失敗しました ({kind})",
   "Not connected": "未接続",
   "Not connected - click Connect with Google": "未接続 - 「Google で接続」をクリックしてください",
-  "Read your calendar events (read-only).": "カレンダーの予定を読み取ります（読み取り専用）。",
   "Reconnect": "再接続",
-  "Sign in with Google to grant read-only access. The refresh token is stored in your macOS Keychain, never shown again.": "Google でサインインして読み取り専用のアクセスを許可します。リフレッシュトークンは macOS キーチェーンに保存され、再表示されません。",
   "Use primary for your main calendar, or a calendar's ID from its Google Calendar settings": "メインのカレンダーには primary を、それ以外は Google カレンダーの設定にあるカレンダー ID を使用します",
   "{type} connects with Google sign-in; it does not take a pasted secret": "{type} は Google サインインで接続します。貼り付けたシークレットは受け付けません",
   "{type} does not use Google sign-in": "{type} は Google サインインを使用しません",
@@ -963,5 +961,11 @@
   "Reading email": "メールを読み取り中",
   "Mailbox is not configured": "メールボックスが設定されていません",
   "Could not read the mailbox credentials": "メールボックスの認証情報を読み取れませんでした",
-  "Sign-in expired - reconnect this inbox": "サインインの有効期限が切れました。このメールボックスを再接続してください"
+  "Sign-in expired - reconnect this inbox": "サインインの有効期限が切れました。このメールボックスを再接続してください",
+  "Sign in with Google to grant calendar access. The refresh token is stored in your macOS Keychain, never shown again.": "Google でサインインしてカレンダーへのアクセスを許可します。リフレッシュトークンは macOS キーチェーンに保存され、再表示されません。",
+  "Read your calendar events and, with your approval in chat, create new ones.": "カレンダーの予定を読み取り、チャットで承認した場合に新しい予定を作成します。",
+  "Sending email": "メールを送信中",
+  "Creating event": "予定を作成中",
+  "Reconnect Google Calendar to grant permission to create events": "予定を作成する権限を付与するには Google カレンダーを再接続してください",
+  "Sending is only supported for Gmail mailboxes": "送信は Gmail のメールボックスでのみサポートされています"
 }

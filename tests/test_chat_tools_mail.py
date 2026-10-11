@@ -61,4 +61,4 @@ def test_mail_tools_are_read_only_and_listed():
     assert registry.TOOLS["mail.search"].mode == registry.READ
     assert registry.TOOLS["mail.read"].mode == registry.READ
     assert "mail.search" in registry.describe_all()
-    assert "mail.send" not in registry.TOOLS
+    assert registry.TOOLS["mail.send"].mode == registry.WRITE  # the only mail tool that is not read-only

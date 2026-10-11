@@ -25,7 +25,10 @@ GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.modify"
 # The Google Calendar connector only ever asks for read access.
-CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.readonly"
+CALENDAR_READ_SCOPE = "https://www.googleapis.com/auth/calendar.readonly"
+# readonly stays first: reading is the base capability; events adds create/edit for the chat's
+# calendar.create_event, and an account connected before it was added keeps working read-only.
+CALENDAR_SCOPE = CALENDAR_READ_SCOPE + " https://www.googleapis.com/auth/calendar.events"
 
 MS_DEVICE_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/devicecode"
 MS_TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"

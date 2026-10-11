@@ -1883,6 +1883,8 @@ def tool_label(name):
         "calendar.list_events": _t("Reading calendar"),
         "mail.search": _t("Searching mail"),
         "mail.read": _t("Reading email"),
+        "mail.send": _t("Sending email"),
+        "calendar.create_event": _t("Creating event"),
         "docs.save": _t("Saving document"),
     }
     return labels.get(name, name)
@@ -1891,7 +1893,7 @@ def tool_label(name):
 def _tool_label_names():
     """Tool names tool_label knows (for the client-side label map)."""
     return ("gitlab.read_issue", "gitlab.list_issues", "gitlab.comment", "github.read_issue",
-            "github.read_pr", "github.comment", "rss.read_feed", "calendar.list_events", "mail.search", "mail.read", "docs.save")
+            "github.read_pr", "github.comment", "rss.read_feed", "calendar.list_events", "mail.search", "mail.read", "mail.send", "calendar.create_event", "docs.save")
 
 
 def merge_tool_events(events):
@@ -14074,7 +14076,7 @@ def _connector_form_body(type_name, account=None, preset_key=None, submitted=Non
             f"<fieldset class='connector-section'><legend>{html.escape(_t('Google account'))}</legend>"
             f"<p class='section-subtitle'><span class='pill {'pill-green' if connected else 'pill-grey'}'>"
             f"{html.escape(status)}</span> "
-            f"{html.escape(_t('Sign in with Google to grant read-only access. The refresh token is stored in your macOS Keychain, never shown again.'))}</p>"
+            f"{html.escape(_t('Sign in with Google to grant calendar access. The refresh token is stored in your macOS Keychain, never shown again.'))}</p>"
             f"{missing_html}</fieldset>")
     original = (f"<input type='hidden' name='original_id' value='{html.escape(original_id, quote=True)}'>"
                 if editing else "")
@@ -14251,7 +14253,7 @@ def _connector_google_callback(query):
     except Exception as exc:  # noqa: BLE001 - class name only, str() could quote request data
         return False, _t("Google sign-in failed ({kind})", kind=type(exc).__name__)
     granted = tokens.get("scope")
-    if granted and mail_auth.CALENDAR_SCOPE not in str(granted).split():
+    if granted and mail_auth.CALENDAR_READ_SCOPE not in str(granted).split():
         return False, _t("Google didn't grant calendar access - reconnect and keep the Calendar box ticked")
     return connectors_config.set_oauth_secret(account_id, tokens.get("refresh_token"))
 
