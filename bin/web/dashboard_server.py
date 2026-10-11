@@ -1246,6 +1246,13 @@ def read_chat_doc(name):
         return None
 
 
+def render_chat_doc_fragment(name):
+    """A saved chat document rendered as sanitized markdown HTML for the
+    chat's side panel, or None for an unknown/invalid name."""
+    content = read_chat_doc(name)
+    return None if content is None else f"<div class='markdown'>{render_markdown(content)}</div>"
+
+
 def read_history_file(name, history_dir=HISTORY_DIR):
     """Read one history file by name. Security-critical: this serves
     user-supplied input (a URL path segment) as a filename, so path traversal
@@ -1824,9 +1831,24 @@ def chat_tool_actions_in_stream_line(line):
 _CHAT_CALL_RE = re.compile(r"\bdashboard_server\.py\s+chat-tool\s+call\s+([a-z0-9_.-]+)\s*(.*)$", re.S)
 
 
+_ISSUE_REF_RE = re.compile(
+    r"^https?://[^/\s]+/(?P<path>.+?)/(?:-/)?(?:issues|merge_requests|pull)/(?P<n>\d+)")
+
+
+def short_tool_ref(text):
+    """An issue/MR/PR URL as `project#N` (last path segment only), so a chip
+    names the project and issue at a glance; any other text is unchanged."""
+    match = _ISSUE_REF_RE.match(text)
+    if match:
+        return f"{match.group('path').rsplit('/', 1)[-1]}#{match.group('n')}"
+    return text
+
+
 def _tool_args_summary(raw):
-    """First string value of a call's JSON args, cut to 80 chars - enough to
-    tell calls apart in a chip without echoing a whole payload."""
+    """A short label for a call's JSON args: `project#N` for an issue
+    reference (url, project+iid or repo+number), else the first string value,
+    cut to 80 chars - enough to tell calls apart in a chip without echoing a
+    whole payload."""
     raw = raw.strip()
     if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in "'\"":
         raw = raw[1:-1]
@@ -1834,11 +1856,39 @@ def _tool_args_summary(raw):
         value = json.loads(raw)
     except ValueError:
         return ""
-    if isinstance(value, dict):
-        for item in value.values():
-            if isinstance(item, (str, int)) and not isinstance(item, bool):
-                return str(item)[:80]
+    if not isinstance(value, dict):
+        return ""
+    for repo_key, number_key in (("project", "iid"), ("repo", "number")):
+        repo, number = value.get(repo_key), value.get(number_key)
+        if isinstance(repo, str) and isinstance(number, int) and not isinstance(number, bool):
+            return f"{repo.rsplit('/', 1)[-1]}#{number}"[:80]
+    for item in value.values():
+        if isinstance(item, (str, int)) and not isinstance(item, bool):
+            return short_tool_ref(str(item))[:80]
     return ""
+
+
+def tool_label(name):
+    """Human label for a chat tool's dotted name, in this request's language;
+    an unknown tool keeps its name. Translated at call time (never import
+    time) because the language is per request thread."""
+    labels = {
+        "gitlab.read_issue": _t("Reading issue"),
+        "gitlab.list_issues": _t("Listing issues"),
+        "gitlab.comment": _t("Commenting on issue"),
+        "github.read_issue": _t("Reading issue"),
+        "github.read_pr": _t("Reading pull request"),
+        "github.comment": _t("Commenting"),
+        "rss.read_feed": _t("Reading feed"),
+        "docs.save": _t("Saving document"),
+    }
+    return labels.get(name, name)
+
+
+def _tool_label_names():
+    """Tool names tool_label knows (for the client-side label map)."""
+    return ("gitlab.read_issue", "gitlab.list_issues", "gitlab.comment", "github.read_issue",
+            "github.read_pr", "github.comment", "rss.read_feed", "docs.save")
 
 
 def merge_tool_events(events):
@@ -4309,7 +4359,7 @@ _FONT_FACE_VARS = "\n".join(
 # to this list before shipping a new icon constant that uses it.
 _MATERIAL_SYMBOLS_ICON_NAMES = (
     "account_balance_wallet,add,add_comment,arrow_forward,arrow_upward,auto_awesome,autorenew,bolt,calendar_month,cancel,check,check_circle,chevron_left,circle,"
-    "close,code,content_copy,delete,description,dns,edit,edit_note,email,error,expand_more,extension,fact_check,folder,folder_off,forum,help,history,hub,"
+    "close,code,content_copy,delete,description,dns,download,edit,edit_note,email,error,expand_more,extension,fact_check,folder,folder_off,forum,help,history,hub,"
     "lightbulb,login,loop,mail,merge,monitoring,newspaper,open_in_new,palette,payments,rss_feed,save,schedule,search,send,settings,smart_toy,space_dashboard,speed,task_alt,terminal,topic,"
     "translate,tune,videocam,warning,webhook,widgets"
 )
@@ -5625,7 +5675,30 @@ html .chat-page.is-empty .activity-composer {{
 /* History + New chat, reachable at any point in either layout: fixed
    just under the topbar, right-aligned. New chat hides on the empty hero,
    which already is a new chat. */
-.tool-chips {{ display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.4rem; }}
+/* Chat doc panel: clicking a saved-document link in the thread opens it in a
+   right-hand panel (like Claude/ChatGPT) instead of downloading. Opening it
+   narrows the main card via --shell-right (so the toolbar and composer follow)
+   and left-aligns the thread; below 900px it overlays the whole card instead. */
+:root {{ --doc-panel-width: min(46vw, 760px); }}
+html.doc-panel-open {{ --shell-right: calc(var(--doc-panel-width) + var(--shell-gap) * 2); }}
+html.doc-panel-open .chat-page {{ align-items: flex-start; }}
+html.doc-panel-open .activity-composer-inner {{ margin: 0; }}
+.doc-panel {{
+  position: fixed; top: var(--shell-top); right: var(--shell-gap); bottom: var(--shell-gap);
+  width: var(--doc-panel-width); z-index: 90; display: none; flex-direction: column;
+  border-radius: var(--shell-radius); border: 1px solid var(--md-outline-variant);
+  background: var(--md-surface); overflow: hidden;
+}}
+html.doc-panel-open .doc-panel {{ display: flex; }}
+.doc-panel-header {{ display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 0.75rem 0.6rem 1.1rem; border-bottom: 1px solid var(--md-outline-variant); }}
+.doc-panel-title {{ flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }}
+.doc-panel-body {{ flex: 1 1 auto; overflow: auto; padding: 1rem 1.25rem 1.5rem; }}
+.doc-panel-body .markdown > :first-child {{ margin-top: 0; }}
+@media (max-width: 900px) {{
+  html.doc-panel-open {{ --shell-right: var(--shell-gap); }}
+  .doc-panel {{ left: var(--shell-gap); width: auto; z-index: 120; }}
+}}
+.tool-chips {{ display: flex; flex-direction: column; align-items: flex-start; gap: 0.3rem; margin-bottom: 0.5rem; }}
 .tool-chip {{ font-size: 0.75rem; padding: 0.15rem 0.55rem; border-radius: 999px; background: var(--md-surface-container-high); color: var(--md-on-surface-variant); }}
 .tool-chip-ok {{ background: color-mix(in srgb, var(--md-primary) 14%, var(--md-surface)); }}
 .tool-chip-err {{ background: color-mix(in srgb, var(--md-error) 16%, var(--md-surface)); }}
@@ -7583,6 +7656,7 @@ window.__loopTextReveal = function(onRender) {
 # _CHAT_PENDING_CARD_JS) under the chips; `getSession` returns the chat's
 # current session id for the card's buttons.
 _CHAT_TOOL_CHIPS_JS = """
+window.__loopToolLabels = __TOOL_LABELS__;
 window.__loopToolChips = function(host, getSession) {
   var chips = {};
   var row = null;
@@ -7601,7 +7675,7 @@ window.__loopToolChips = function(host, getSession) {
       }
       chip = document.createElement('span');
       chip.className = 'tool-chip tool-chip-run';
-      chip.textContent = ev.name + (ev.summary ? ' \\u00b7 ' + ev.summary : '');
+      chip.textContent = (window.__loopToolLabels[ev.name] || ev.name) + (ev.summary ? ' \\u00b7 ' + ev.summary : '');
       chips[ev.id] = chip;
       row.appendChild(chip);
     } else if (ev.kind === 'result' && chip) {
@@ -7627,9 +7701,10 @@ def chat_tool_chips_html(tools, session=None):
         if not isinstance(tool, dict):
             continue
         state = {True: "ok", False: "err"}.get(tool.get("ok"), "run")
-        summary = f" \u00b7 {html.escape(str(tool.get('summary') or ''))}" if tool.get("summary") else ""
+        summary = (f" \u00b7 {html.escape(short_tool_ref(str(tool.get('summary'))))}"
+                   if tool.get("summary") else "")
         chips.append(f'<span class="tool-chip tool-chip-{state}">'
-                     f'{html.escape(str(tool.get("name", "")))}{summary}</span>')
+                     f'{html.escape(tool_label(str(tool.get("name", ""))))}{summary}</span>')
         stored = tool.get("pending")
         if session and isinstance(stored, dict) and isinstance(stored.get("pending_id"), str):
             from chat_tools import pending
@@ -7753,6 +7828,12 @@ if (!window.__loopPendingCardClicks) {
   });
 }
 """
+
+
+def _chat_tool_chips_js():
+    """_CHAT_TOOL_CHIPS_JS with this request's translated tool labels."""
+    labels = {name: tool_label(name) for name in _tool_label_names()}
+    return _CHAT_TOOL_CHIPS_JS.replace("__TOOL_LABELS__", json.dumps(labels))
 
 
 def _chat_pending_card_js():
@@ -8344,7 +8425,7 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&icon_names={_MATERIAL_SYMBOLS_ICON_NAMES}&display=block" rel="stylesheet">
 <style>{_STYLE}</style>
 <script>{_TEXT_REVEAL_SCRIPT}
-{_CHAT_TOOL_CHIPS_JS}
+{_chat_tool_chips_js()}
 {_chat_pending_card_js()}
 (function() {{
   if (localStorage.getItem('loop-dashboard-sidebar') === '1') {{
@@ -8531,6 +8612,38 @@ def _render_shell(title, active_page, status_badge_html, body_html, refresh=Fals
     function scrollToBottom() {{
       scroller.scrollTo(0, scroller.scrollHeight);
     }}
+    // Saved-document links (/chat-docs/<name>) open in the right-hand panel
+    // rather than downloading; the panel's own button still downloads.
+    // Server-rendered, sanitized markdown goes in via innerHTML; the title is
+    // link text, set via textContent.
+    var docPanel = document.getElementById('doc-panel');
+    if (docPanel) {{
+      var docRoot = document.documentElement;
+      var docTitle = docPanel.querySelector('[data-doc-title]');
+      var docBody = docPanel.querySelector('[data-doc-body]');
+      var docDownload = docPanel.querySelector('[data-doc-download]');
+      var docFailed = {json.dumps(_t("Could not load the document."))};
+      function closeDoc() {{ docRoot.classList.remove('doc-panel-open'); }}
+      docPanel.querySelector('[data-doc-close]').addEventListener('click', closeDoc);
+      document.addEventListener('keydown', function(ev) {{ if (ev.key === 'Escape') closeDoc(); }});
+      document.addEventListener('click', function(ev) {{
+        var link = ev.target.closest && ev.target.closest('a[href^="/chat-docs/"]');
+        if (!link || !link.closest('.chat-thread') || ev.metaKey || ev.ctrlKey || ev.shiftKey) return;
+        ev.preventDefault();
+        var href = link.getAttribute('href');
+        docTitle.textContent = link.textContent.trim() || href.split('/').pop();
+        docDownload.setAttribute('href', href);
+        docDownload.setAttribute('download', href.split('/').pop());
+        docBody.textContent = '';
+        docRoot.classList.add('doc-panel-open');
+        fetch(href + '?fragment=1').then(function(r) {{
+          if (!r.ok) throw new Error(r.status);
+          return r.text();
+        }}).then(function(markup) {{ docBody.innerHTML = markup; }})
+          .catch(function() {{ docBody.textContent = docFailed; }});
+      }});
+    }}
+
     // Open on the most recent messages, not the top of a long thread.
     if (!chatPage || !chatPage.classList.contains('is-empty')) scrollToBottom();
 
@@ -9587,6 +9700,14 @@ def _overview_body(flash=None, flash_ok=True, session_id=None):
 <button type='submit' class='btn btn-neutral chat-tool-btn chat-new-btn'><span class='material-symbols-outlined' aria-hidden='true'>add_comment</span>{html.escape(_t('New chat'))}</button>
 </form>
 </div>
+<aside class='doc-panel' id='doc-panel' aria-label='{html.escape(_t('Document'))}'>
+<div class='doc-panel-header'>
+<span class='doc-panel-title' data-doc-title></span>
+<a class='btn btn-neutral' data-doc-download href='#' download><span class='material-symbols-outlined' aria-hidden='true'>download</span>{html.escape(_t('Download'))}</a>
+<button type='button' class='message-action-btn' data-doc-close aria-label='{html.escape(_t('Close document'))}'><span class='material-symbols-outlined' aria-hidden='true'>close</span></button>
+</div>
+<div class='doc-panel-body' data-doc-body></div>
+</aside>
 <div class='chat-history-backdrop' data-chat-history-close hidden></div>
 <aside class='chat-history' id='chat-history' aria-label='{html.escape(_t('Chat history'))}' hidden>
 <div class='chat-history-header'>
@@ -15182,6 +15303,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
         if split.path.startswith("/chat-docs/"):
             name = split.path[len("/chat-docs/"):]
+            if "fragment=1" in split.query.split("&"):
+                fragment = render_chat_doc_fragment(name)
+                if fragment is None:
+                    self._not_found()
+                else:
+                    self._send_html(fragment)
+                return
             content = read_chat_doc(name)
             if content is None:
                 self._not_found()

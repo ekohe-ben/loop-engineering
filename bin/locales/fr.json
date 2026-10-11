@@ -945,5 +945,16 @@
   "{tool} failed: {error}": "{tool} a échoué : {error}",
   "Approved and done: {tool} {summary}": "Approuvé et exécuté : {tool} {summary}",
   "Approved.": "Approuvé.",
-  "Rejected.": "Rejeté."
+  "Rejected.": "Rejeté.",
+  "Reading issue": "Lecture du ticket",
+  "Listing issues": "Liste des tickets",
+  "Commenting on issue": "Commentaire sur le ticket",
+  "Reading pull request": "Lecture de la pull request",
+  "Commenting": "Commentaire en cours",
+  "Reading feed": "Lecture du flux",
+  "Saving document": "Enregistrement du document",
+  "Document": "Document",
+  "Download": "Télécharger",
+  "Close document": "Fermer le document",
+  "Could not load the document.": "Impossible de charger le document."
 }

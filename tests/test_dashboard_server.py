@@ -14443,7 +14443,7 @@ CALL = ("python3 /x/bin/web/dashboard_server.py chat-tool call gitlab.read_issue
 def test_start_event_names_the_tool_and_summarises_args():
     events = ds.chat_tool_events_in_stream_line(_assistant_line(CALL))
     assert events == [{"kind": "start", "id": "t1", "name": "gitlab.read_issue",
-                       "summary": "https://gitlab.example.com/g/p/-/issues/482"}]
+                       "summary": "p#482"}]
 
 
 def test_existing_chat_tool_actions_also_show_as_tools():
@@ -14543,7 +14543,7 @@ def test_chip_html_renders_each_call_with_state_and_escapes():
         {"name": "docs.save", "summary": "<b>x</b>", "ok": None},
         {"name": "gitlab.list_issues", "summary": "", "ok": False}])
     assert 'tool-chip-ok' in html_out and 'tool-chip-run' in html_out and 'tool-chip-err' in html_out
-    assert "gitlab.read_issue" in html_out and "g/p#482" in html_out
+    assert "Reading issue" in html_out and "g/p#482" in html_out
     assert "&lt;b&gt;x&lt;/b&gt;" in html_out and "<b>x</b>" not in html_out
 
 
@@ -14556,7 +14556,7 @@ def test_stored_loop_message_renders_its_chips(tmp_path):
     ds.append_message("loop", "reply text", path, session="s1",
                       tools=[{"name": "docs.save", "summary": "t", "ok": True}])
     fragment = ds.render_activity_messages_fragment(path, "s1")
-    assert "tool-chip" in fragment and "docs.save" in fragment
+    assert "tool-chip" in fragment and "Saving document" in fragment
 
 
 def test_chat_scripts_handle_tool_events(monkeypatch, tmp_path):
@@ -14838,3 +14838,43 @@ def test_each_chat_ui_has_its_own_streaming_flag_and_the_timer_reads_the_shared_
     assert "if (!window.__loopActivityChatStreaming) refreshMessageList();" in page
     assert "window.__loopPanelChatStreaming = value" in page
     assert "if (window.__loopChatStreaming) {" in page.split("location.reload()")[0][-400:]
+
+
+def test_tool_args_summary_shortens_issue_urls_and_project_refs():
+    summary = ds._tool_args_summary
+    assert summary('\'{"url": "https://gitlab.example.com/group/sub/my-app/-/issues/482"}\'') == "my-app#482"
+    assert summary('{"project": "group/my-app", "iid": 7}') == "my-app#7"
+    assert summary('{"repo": "octo/hello", "number": 12}') == "hello#12"
+    assert summary('{"feed": "https://example.com/feed.xml"}') == "https://example.com/feed.xml"
+
+
+def test_chip_html_uses_a_translated_label_and_a_short_ref_not_the_tool_path():
+    out = ds.chat_tool_chips_html([
+        {"name": "gitlab.read_issue", "ok": True,
+         "summary": "https://gitlab.example.com/group/my-app/-/issues/482"}])
+    assert "gitlab.read_issue" not in out
+    assert "Reading issue" in out and "my-app#482" in out and "gitlab.example.com" not in out
+    assert "unknown.tool" in ds.chat_tool_chips_html([{"name": "unknown.tool", "summary": "", "ok": True}])
+
+
+def test_tool_labels_are_translated_per_language():
+    from i18n import set_language
+    set_language("fr")
+    try:
+        assert ds.tool_label("gitlab.read_issue") != "Reading issue"
+    finally:
+        set_language("en")
+
+
+def test_chat_doc_fragment_renders_markdown_and_rejects_bad_names(tmp_path, monkeypatch):
+    from chat_tools import documents
+    monkeypatch.setattr(documents, "DOCS_DIR", tmp_path)
+    (tmp_path / "note-1.md").write_text("# Title\n\n<script>x</script>")
+    out = ds.render_chat_doc_fragment("note-1.md")
+    assert "<h1" in out and "<script>" not in out
+    assert ds.render_chat_doc_fragment("../x.md") is None
+
+
+def test_chat_page_has_a_doc_panel_that_narrows_the_thread():
+    assert "html.doc-panel-open" in ds._STYLE
+    assert "--shell-right" in ds._STYLE.split("html.doc-panel-open")[1].split("}")[0]

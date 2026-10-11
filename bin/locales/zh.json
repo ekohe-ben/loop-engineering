@@ -945,5 +945,16 @@
   "{tool} failed: {error}": "{tool} 失败：{error}",
   "Approved and done: {tool} {summary}": "已批准并执行：{tool} {summary}",
   "Approved.": "已批准。",
-  "Rejected.": "已拒绝。"
+  "Rejected.": "已拒绝。",
+  "Reading issue": "正在读取议题",
+  "Listing issues": "正在列出议题",
+  "Commenting on issue": "正在评论议题",
+  "Reading pull request": "正在读取拉取请求",
+  "Commenting": "正在评论",
+  "Reading feed": "正在读取订阅源",
+  "Saving document": "正在保存文档",
+  "Document": "文档",
+  "Download": "下载",
+  "Close document": "关闭文档",
+  "Could not load the document.": "无法加载文档。"
 }

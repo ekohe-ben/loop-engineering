@@ -945,5 +945,16 @@
   "{tool} failed: {error}": "{tool} が失敗しました: {error}",
   "Approved and done: {tool} {summary}": "承認して実行しました: {tool} {summary}",
   "Approved.": "承認しました。",
-  "Rejected.": "却下しました。"
+  "Rejected.": "却下しました。",
+  "Reading issue": "Issue を読み取り中",
+  "Listing issues": "Issue を一覧表示中",
+  "Commenting on issue": "Issue にコメント中",
+  "Reading pull request": "プルリクエストを読み取り中",
+  "Commenting": "コメント中",
+  "Reading feed": "フィードを読み取り中",
+  "Saving document": "ドキュメントを保存中",
+  "Document": "ドキュメント",
+  "Download": "ダウンロード",
+  "Close document": "ドキュメントを閉じる",
+  "Could not load the document.": "ドキュメントを読み込めませんでした。"
 }

@@ -13,6 +13,10 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 
 ### Added
 
+- Chat tool calls now show one per line with a translated label and a short
+  `project#N` reference instead of the raw tool path and full URL, and clicking a saved
+  document link opens it in a right-hand panel beside the thread (with a Download button)
+  instead of downloading it.
 - The dashboard chat can now call connector tools (GitLab and GitHub issues, pull
   requests and comments, RSS feeds, saved markdown documents), shows each tool call as
   a chip on the reply, and asks for an Approve click before any write action.
