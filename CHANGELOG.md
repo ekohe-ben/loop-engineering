@@ -49,6 +49,7 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 
 ### Changed
 
+- Chat replies: tool calls render as a compact step list (Claude/ChatGPT style) with an "Analyzing results…" status while the model reads the data, and long markdown (tables, code, URLs) now wraps instead of scrolling sideways.
 - New Loop X logo (a ring of four coloured arcs broken by an X) on the
   dashboard: browser tab icon, sidebar and chat bubbles. The sidebar now
   always shows the logo (28px) next to the name, not only when collapsed.

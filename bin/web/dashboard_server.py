@@ -5705,16 +5705,23 @@ html.doc-panel-open .doc-panel {{ display: flex; }}
   html.doc-panel-open {{ --shell-right: var(--shell-gap); }}
   .doc-panel {{ left: var(--shell-gap); width: auto; z-index: 120; }}
 }}
-.tool-chips {{ display: flex; flex-direction: column; align-items: flex-start; gap: 0.3rem; margin-bottom: 0.5rem; }}
-.tool-chip {{ display: inline-flex; align-items: center; gap: 0.35rem; max-width: 100%; font-size: 0.8rem; padding: 0.2rem 0.65rem 0.2rem 0.4rem; border-radius: 999px; background: var(--md-surface-container-high); color: var(--md-on-surface-variant); }}
+.tool-chips {{ display: flex; flex-direction: column; align-items: stretch; gap: 0; margin-bottom: 0.75rem; max-width: 100%; border: 1px solid var(--md-outline-variant); border-radius: 12px; background: var(--md-surface-container-low); overflow: hidden; }}
+.tool-chip {{ display: flex; align-items: center; gap: 0.5rem; min-width: 0; font-size: 0.82rem; padding: 0.45rem 0.75rem; color: var(--md-on-surface-variant); }}
+.tool-chip + .tool-chip, .tool-chip + .tool-status {{ border-top: 1px solid var(--md-outline-variant); }}
 .tool-chip-text {{ min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
-.tool-chip-icon {{ flex: none; font-size: 1.05rem; }}
-.tool-chip-ok {{ background: color-mix(in srgb, var(--md-primary) 12%, var(--md-surface)); }}
+.tool-chip-icon {{ flex: none; font-size: 1.1rem; }}
 .tool-chip-ok .tool-chip-icon {{ color: var(--md-primary); }}
-.tool-chip-err {{ background: color-mix(in srgb, var(--md-error) 14%, var(--md-surface)); }}
+.tool-chip-err {{ color: var(--md-error); }}
 .tool-chip-err .tool-chip-icon {{ color: var(--md-error); }}
+.tool-chip-run {{ color: var(--md-on-surface); }}
 .tool-chip-run .tool-chip-icon {{ animation: tool-chip-spin 1s linear infinite; }}
 @keyframes tool-chip-spin {{ to {{ transform: rotate(360deg); }} }}
+.tool-status {{ display: flex; align-items: center; gap: 0.5rem; padding: 0.45rem 0.75rem; font-size: 0.82rem; color: var(--md-on-surface-variant); }}
+.tool-status-icon {{ flex: none; font-size: 1.1rem; color: var(--md-primary); animation: ai-thinking-pulse 1.4s ease-in-out infinite; }}
+.tool-status-text {{ background: linear-gradient(90deg, var(--md-on-surface-variant) 0%, var(--md-on-surface) 50%, var(--md-on-surface-variant) 100%); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: tool-status-sheen 1.8s linear infinite; }}
+@keyframes tool-status-sheen {{ from {{ background-position: 200% 0; }} to {{ background-position: -200% 0; }} }}
+/* The reply started streaming: the "Analyzing" line has done its job. */
+.message-body:has(.message-text:not(:empty)) .tool-status {{ display: none; }}
 .pending-card {{ display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.5rem; padding: 0.75rem; border-radius: 12px; border: 1px solid var(--md-outline-variant); background: var(--md-surface-container); }}
 .pending-card-head {{ display: flex; align-items: center; gap: 0.4rem; font-weight: 500; }}
 .pending-card-head .material-symbols-outlined {{ font-size: 1.1rem; color: var(--md-primary); }}
@@ -5796,7 +5803,14 @@ html.doc-panel-open .doc-panel {{ display: flex; }}
 .chat-thread .message-bubble {{ max-width: 85%; box-shadow: none; }}
 .chat-thread .message-bubble-loop {{ background: none; padding-left: 0; padding-right: 0; max-width: 100%; }}
 .chat-thread .message-bubble-user {{ border-radius: 20px; background: color-mix(in srgb, var(--md-primary) 14%, var(--md-surface-container-lowest)); color: var(--md-on-surface); }}
-.chat-thread .message-text {{ font-size: 0.97rem; line-height: 1.65; }}
+.chat-thread .message-text {{ font-size: 0.97rem; line-height: 1.65; overflow-wrap: anywhere; min-width: 0; }}
+/* Long markdown (wide tables, code, URLs) wraps inside the column instead of
+   growing a horizontal scrollbar. */
+.chat-thread .markdown .table-wrap, .ai-panel .markdown .table-wrap {{ overflow-x: visible; }}
+.chat-thread .markdown table, .ai-panel .markdown table {{ table-layout: auto; width: 100%; }}
+.chat-thread .markdown th, .chat-thread .markdown td, .ai-panel .markdown th, .ai-panel .markdown td {{ white-space: normal; overflow-wrap: anywhere; word-break: break-word; }}
+.chat-thread .markdown pre, .ai-panel .markdown pre {{ white-space: pre-wrap; overflow-wrap: anywhere; overflow-x: hidden; }}
+.chat-thread .markdown code, .ai-panel .markdown code {{ overflow-wrap: anywhere; }}
 /* Each message is a column: bubble, then an action bar (copy, edit on
    your own messages, delete). The bar stays visible under replies, as in
    chatbot UIs, but appears on hover/focus under your own messages -
@@ -7669,13 +7683,37 @@ window.__loopTextReveal = function(onRender) {
 # current session id for the card's buttons.
 _CHAT_TOOL_CHIPS_JS = """
 window.__loopToolLabels = __TOOL_LABELS__;
+window.__loopToolStatusText = __STATUS_TEXT__;
 window.__loopToolChips = function(host, getSession) {
   var chips = {};
   var row = null;
+  var status = null;
+  // Once every call has returned, the model still has to read the data and
+  // write the reply - a quiet gap. This line (hidden by CSS as soon as reply
+  // text appears) shows that work is happening. textContent only.
+  function setStatus(on) {
+    if (!row) return;
+    if (!on) { if (status) { status.remove(); status = null; } return; }
+    if (status) { row.appendChild(status); return; }
+    status = document.createElement('div');
+    status.className = 'tool-status';
+    status.setAttribute('role', 'status');
+    var sIcon = document.createElement('span');
+    sIcon.className = 'material-symbols-outlined tool-status-icon';
+    sIcon.setAttribute('aria-hidden', 'true');
+    sIcon.textContent = 'auto_awesome';
+    var sText = document.createElement('span');
+    sText.className = 'tool-status-text';
+    sText.textContent = window.__loopToolStatusText;
+    status.appendChild(sIcon);
+    status.appendChild(sText);
+    row.appendChild(status);
+  }
   return function(ev) {
     if (!ev || typeof ev !== 'object') return;
     var chip = chips[ev.id];
     if (ev.kind === 'start') {
+      setStatus(false);
       if (!row) {
         var container = typeof host === 'function' ? host() : host;
         if (!container) return;
@@ -7701,6 +7739,8 @@ window.__loopToolChips = function(host, getSession) {
     } else if (ev.kind === 'result' && chip) {
       chip.className = 'tool-chip ' + (ev.ok ? 'tool-chip-ok' : 'tool-chip-err');
       chip.querySelector('.tool-chip-icon').textContent = ev.ok ? 'check_circle' : 'error';
+      var running = row.querySelector('.tool-chip-run');
+      setStatus(!running);
     } else if (ev.kind === 'pending' && row && window.__loopPendingCard) {
       row.parentNode.insertBefore(window.__loopPendingCard(ev, getSession ? getSession() : ''), row.nextSibling);
     }
@@ -7856,7 +7896,8 @@ if (!window.__loopPendingCardClicks) {
 def _chat_tool_chips_js():
     """_CHAT_TOOL_CHIPS_JS with this request's translated tool labels."""
     labels = {name: tool_label(name) for name in _tool_label_names()}
-    return _CHAT_TOOL_CHIPS_JS.replace("__TOOL_LABELS__", json.dumps(labels))
+    return (_CHAT_TOOL_CHIPS_JS.replace("__TOOL_LABELS__", json.dumps(labels))
+            .replace("__STATUS_TEXT__", json.dumps(_t("Analyzing results…"))))
 
 
 def _chat_pending_card_js():
