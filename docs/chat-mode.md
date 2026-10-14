@@ -6,13 +6,33 @@ Chat mode adds a stateful conversation layer to Loop X, allowing interactive cha
 
 ## Quick Start
 
+### CLI (Available Now)
+
 ```bash
-# Start chat mode
+# List existing sessions
 python3 bin/loop_chat.py
 
 # Create/open a session
-python3 bin/loop_chat.py "my-session-name"
 python3 bin/loop_chat.py "Discussion about Python"
+python3 bin/loop_chat.py "TCP/IP networking"
+
+# In the REPL, use commands:
+/seat claude     # Switch to Claude
+/seat agy        # Switch to Agy (Phase 1 stub)
+/mode task       # Enable tools (use with caution)
+/mode chat       # Back to safe chat mode
+/replay          # Force full context replay
+/end             # End session
+```
+
+### Dashboard UI (Phase 2)
+
+The web dashboard integration is planned for Phase 2. For now, use the CLI above for full functionality.
+
+To start the dashboard server locally:
+```bash
+python3 bin/web/dashboard_server.py
+# Open http://localhost:8080
 ```
 
 ## Architecture
