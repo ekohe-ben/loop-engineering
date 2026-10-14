@@ -94,24 +94,16 @@ Two code paths for efficiency:
 
 ## Configuration
 
-Add to `~/.loop-engineering/config.yaml` (or use `config/chat.json.template`):
+**Phase 1 MVP**: Configuration is hardcoded in the code. Token budgets and defaults are defined in `bin/chat/assembler.py`.
 
-```json
-{
-  "default_seat": "claude",
-  "seats": ["claude", "agy"],
-  "summary": {
-    "trigger_turns": 20,
-    "trigger_tokens": 16000,
-    "max_tokens": 3000
-  },
-  "replay": {
-    "recent_turns": 12,
-    "recent_max_tokens": 12000
-  },
-  "sandbox_dir": "~/.loop-engineering/chat-sandbox"
-}
-```
+Default settings:
+- **Default seat**: `claude`
+- **Available seats**: `claude`, `agy` (agy is stub in Phase 1)
+- **Summary trigger**: 20 turns or 16K tokens (Phase 2)
+- **Replay recent**: 12 turns / 12K tokens max
+- **Sandbox dir**: `~/.loop-engineering/chat-sandbox/`
+
+**Phase 2**: Will support `config/chat.json` for customization. Template exists at `config/chat.json.template` for reference.
 
 ## Testing
 
@@ -234,10 +226,13 @@ Key design decisions:
 - Read-only discussion only
 
 ### Task Mode
-- `--allowedTools <list>` + `--permission-mode acceptEdits` → controlled tool access
-- Same tool boundaries as GitLab loop
+- `--allowedTools "Read Write Edit Bash"` + `--permission-mode acceptEdits` → controlled tool access
+- Still uses chat sandbox directory (not real GitLab worktree)
+- Phase 1 MVP: unrestricted Read/Write/Edit/Bash within sandbox
 - Explicit `/mode task` required
 - Warning displayed on switch
+
+**Note**: Phase 1 task mode stays in the chat sandbox for simplicity. Real GitLab worktree integration is Phase 2.
 
 ### Credentials
 - All auth stays in official CLIs (Claude Code, Antigravity)
@@ -275,8 +270,8 @@ See `PROGRESS.md` for detailed acceptance criteria. Core requirements:
 - [x] Cross-seat replay path implemented  
 - [x] Chat mode restricts tools to sandbox
 - [x] Existing task loops still work
-- [ ] Tests pass (pending pytest run)
-- [ ] Branch pushed and PR opened
+- [x] Tests pass (70 passed, 1 skipped - integration test suite)
+- [x] Branch pushed and PR opened
 
 ## Next Steps (Phase 2)
 

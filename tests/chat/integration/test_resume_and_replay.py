@@ -253,3 +253,28 @@ class TestResumeAndReplay:
         assert "Message 0" not in replay.prompt  # Early messages dropped
         # But should have recent ones
         assert "Message 19" in replay.prompt or "Message 18" in replay.prompt
+
+    def test_replay_command_clears_stored_native_id(self, integration_env):
+        """BLOCKER test: /replay command clears stored native_id forcing full replay."""
+        sessions_dir = integration_env["sessions_dir"]
+        
+        mgr = SessionManager(sessions_dir)
+        meta = mgr.create_session("Replay Clear Test", seat="claude")
+        
+        # Store a conversation with native_id in meta.json (via update_seat)
+        mgr.append_message(meta.id, "user", "First message")
+        mgr.append_message(meta.id, "assistant", "First response", 
+                          seat="claude", native_id="sess-stored-abc-123")
+        # Must call update_seat to store native_id in meta.json
+        mgr.update_seat(meta.id, "claude", native_id="sess-stored-abc-123")
+        
+        # Verify native_id is stored in meta.json
+        stored_id = mgr.get_native_id(meta.id, "claude")
+        assert stored_id == "sess-stored-abc-123", "Native ID should be stored in meta.json"
+        
+        # Simulate /replay command - clear native_id using clear_native=True
+        mgr.update_seat(meta.id, "claude", clear_native=True)
+        
+        # Verify native_id is now cleared (None)
+        cleared_id = mgr.get_native_id(meta.id, "claude")
+        assert cleared_id is None, "/replay must clear native_id to force full replay"

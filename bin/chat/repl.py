@@ -55,14 +55,15 @@ class ChatREPL:
             return
         
         try:
-            # Open existing session
+            # Try to open existing session (must be valid session_id format)
             meta = self.session_mgr.open_session(session_id)
             self.current_session = meta
             self.current_backend = get_backend(meta.active_seat)
             print(f"\nOpened session: {meta.title}")
             print(f"Mode: {meta.mode} | Seat: {meta.active_seat}")
-        except FileNotFoundError:
-            # Create new session with this as title
+        except (FileNotFoundError, ValueError):
+            # Not a valid session_id or doesn't exist - treat as title and create new
+            # This handles titles with / or special chars safely via slug generation
             print(f"\nCreating new session: {session_id}")
             meta = self.session_mgr.create_session(session_id)
             self.current_session = meta
@@ -152,9 +153,11 @@ class ChatREPL:
         elif command == "/replay":
             print("Forcing replay with current context...")
             # Clear native session to force replay on next message
-            self.session_mgr.update_seat(self.current_session.id, 
-                                         self.current_session.active_seat,
-                                         native_id=None)
+            self.session_mgr.update_seat(
+                self.current_session.id,
+                self.current_session.active_seat,
+                clear_native=True,
+            )
             print("Next message will use full context replay.")
         
         elif command == "/summary":

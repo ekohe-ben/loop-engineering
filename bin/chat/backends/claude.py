@@ -24,7 +24,7 @@ class ClaudeBackend(BackendAdapter):
         return self._execute(cmd, cwd)
 
     def resume(self, native_id: str, prompt: str, mode: str, cwd: str) -> ChatResponse | None:
-        """Resume existing Claude session with --continue."""
+        """Resume existing Claude session with --resume."""
         if not native_id:
             return None
         cmd = self.argv_for(prompt, mode, native_id=native_id)
