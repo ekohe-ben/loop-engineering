@@ -33,6 +33,7 @@ MAX_SNIPPET = 300
 MAX_SUMMARY = 400
 MAX_ENTRY = 200
 MAX_ENTRIES = 5
+MAX_ATTENDEES = 8  # names shown in the Slack brief before "+N more"
 MAX_BRIEFS = 100  # briefs kept for the Live page, newest first
 NO_CLAUDE = "mail skipped: reading mail requires the Claude CLI"
 
@@ -48,8 +49,32 @@ SETTINGS_FIELDS = (
           help="yes also briefs events with no other attendees", placeholder="no"),
 )
 
+_PLACEHOLDER = re.compile(
+    r"^(none|n/?a|null|nil|unknown|tbd|tba|undefined|nothing|empty|-+|\.+"
+    r"|no [\w ,/-]{0,40}(provided|available|found|identified|specified|mentioned|listed)"
+    r"|not (provided|available|specified|applicable|mentioned))\.?$", re.I)
+_LEAD_MARK = re.compile(r"^\s*(?:[-*\u2022\u2023]+|\d{1,2}[.)])\s+")
+
 _URL = re.compile(r"https?://[^\s<>\"'()\[\]]+")
 _GITLAB_PATH = re.compile(r"^(.+?)/-/(issues|merge_requests)/(\d+)(?:[/?#].*)?$")
+
+
+def _clean_entry(value, max_len):
+    """A model-written string with list markers stripped, or '' when it is
+    empty, a placeholder ('N/A', 'None', 'No agenda provided') or too short
+    to mean anything."""
+    text = loopkit.chat_text(_LEAD_MARK.sub("", str(value or "")), max_len)
+    return "" if len(text) < 3 or _PLACEHOLDER.match(text) else text
+
+
+def _clean_entries(values, max_len, limit):
+    seen, out = set(), []
+    for value in values or []:
+        text = _clean_entry(value, max_len) if isinstance(value, str) else ""
+        if text and text.lower() not in seen:
+            seen.add(text.lower())
+            out.append(text)
+    return out[:limit]
 
 
 def _err(exc):
@@ -350,17 +375,17 @@ class CalendarPrep(loopkit.LoopPlugin):
     def after_item(self, item, answer, ctx):
         offered = {r["url"] for r in item.payload.get("gitlab", [])}
 
-        def entries(key):
-            return [loopkit.chat_text(x, MAX_ENTRY) for x in answer.get(key) or [] if isinstance(x, str)][:MAX_ENTRIES]
-
-        open_items = []
+        open_items, seen = [], set()
         for o in answer.get("open_items") or []:
-            if isinstance(o, dict) and o.get("text"):
-                link = o.get("link") if o.get("link") in offered else ""
-                open_items.append({"text": loopkit.chat_text(o["text"], MAX_ENTRY), "link": link})
-        brief = {"summary": loopkit.chat_text(answer.get("summary") or "", MAX_SUMMARY),
-                 "agenda": entries("agenda"), "open_items": open_items[:MAX_ENTRIES],
-                 "talking_points": entries("talking_points"), "follow_ups": entries("follow_ups")}
+            text = _clean_entry(o.get("text"), MAX_ENTRY) if isinstance(o, dict) else ""
+            if text and text.lower() not in seen:
+                seen.add(text.lower())
+                open_items.append({"text": text, "link": o.get("link") if o.get("link") in offered else ""})
+        brief = {"summary": _clean_entry(answer.get("summary"), MAX_SUMMARY),
+                 "agenda": _clean_entries(answer.get("agenda"), MAX_ENTRY, MAX_ENTRIES),
+                 "open_items": open_items[:MAX_ENTRIES],
+                 "talking_points": _clean_entries(answer.get("talking_points"), MAX_ENTRY, MAX_ENTRIES),
+                 "follow_ups": _clean_entries(answer.get("follow_ups"), MAX_ENTRY, MAX_ENTRIES)}
         series_id = item.payload.get("series_id")
         if series_id:
             path = self._series_file(ctx)
@@ -373,7 +398,7 @@ class CalendarPrep(loopkit.LoopPlugin):
         return loopkit.Outcome(item.key, "done", brief["summary"][:120] or "brief written",
                                url=ev["join_url"] or item.url,
                                data={"label": ev["title"],
-                                     "event": {k: ev[k] for k in ("title", "start", "end", "join_url")},
+                                     "event": {k: ev[k] for k in ("title", "start", "end", "join_url", "attendees")},
                                      "brief": brief})
 
     def digest(self, outcomes, ctx):
@@ -382,24 +407,31 @@ class CalendarPrep(loopkit.LoopPlugin):
 
     @staticmethod
     def _render(data, ctx):
-        """Slack mrkdwn that still reads fine as plain text elsewhere: bold
-        title, one line of time and join link, a quoted summary and bulleted
-        sections."""
+        """Slack mrkdwn only (*bold*, > quote, \u2022 bullets, <url|label>
+        links; no # headings or **bold**) that still reads fine as plain text
+        elsewhere: bold title, Date & Time / Attendees / Meeting Link lines,
+        a quoted summary and bulleted sections."""
         ev, brief = data["event"], data["brief"]
         start, end = _parse(ev.get("start")), _parse(ev.get("end"))
         title = loopkit.chat_text(ev.get("title") or "", MAX_ENTRY).replace("*", "")
-        lines = [f"*Meeting Prep: {title}*", ""]
-        when = []
+        lines = [f"*\U0001F4C5 Meeting Prep: {title}*", ""]
         if start is not None:
-            span = start.astimezone().strftime("%H:%M")
+            local = start.astimezone()
+            when = f"{local:%a, %b} {local.day} \u00b7 {local:%H:%M}"
             if end is not None:
-                span += "\u2013" + end.astimezone().strftime("%H:%M")
+                when += "\u2013" + end.astimezone().strftime("%H:%M")
+            when += f" ({local:%Z})" if local.strftime("%Z") else ""
             minutes = max(0, round((start - ctx.now).total_seconds() / 60))
-            when.append(f"\U0001F550 `{span}`  \u00b7  in {minutes} min")
-        if ev.get("join_url"):
-            when.append("\U0001F3A5 " + loopkit.slack_link(ev["join_url"], "Join meeting"))
-        if when:
-            lines.append("   ".join(when))
+            lines.append(f"*Date & Time:* {when} \u00b7 in {minutes} min")
+        names = [n for n in (loopkit.chat_text(x, 80).replace("*", "") for x in ev.get("attendees") or []) if n]
+        if names:
+            shown = ", ".join(names[:MAX_ATTENDEES])
+            if len(names) > MAX_ATTENDEES:
+                shown += f" +{len(names) - MAX_ATTENDEES} more"
+            lines.append(f"*Attendees:* {shown}")
+        link = ev.get("join_url")
+        lines.append("*Meeting Link:* " + (loopkit.slack_link(link, "Join meeting") if link
+                                          else "_none in the invite_"))
         if brief["summary"]:
             lines += ["", f"> {brief['summary']}"]
 

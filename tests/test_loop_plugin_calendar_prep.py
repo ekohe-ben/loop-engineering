@@ -235,7 +235,7 @@ def test_description_is_trimmed(tmp_path):
 ANSWER = {"summary": "Decide the login fix.", "agenda": ["Review MR"],
           "open_items": [{"text": "MR 7 waits on you", "link": f"{GL}/g/p/-/merge_requests/7"},
                          {"text": "evil", "link": "https://evil.example.com"}],
-          "talking_points": ["<!channel> ship it"] + [f"p{n}" for n in range(9)],
+          "talking_points": ["<!channel> ship it"] + [f"point {n}" for n in range(9)],
           "follow_ups": ["Ann owes the test plan"]}
 
 
@@ -268,17 +268,43 @@ def test_digest_renders_the_brief(tmp_path):
     out = p.after_item(item, ANSWER, Ctx())
     text = p.digest([out], Ctx())
     lines = text.split("\n")
-    assert lines[0] == "*Meeting Prep: Sync*" and lines[1] == ""      # title, then breathing room
-    assert lines[2].startswith("\U0001F550 `") and "in 30 min" in lines[2]
-    assert "<https://meet.google.com/abc|Join meeting>" in lines[2]
+    assert lines[0] == "*\U0001F4C5 Meeting Prep: Sync*" and lines[1] == ""
+    assert lines[2].startswith("*Date & Time:* ") and "2026" not in lines[2] and "in 30 min" in lines[2]
+    assert lines[3] == "*Attendees:* Ann"
+    assert lines[4] == "*Meeting Link:* <https://meet.google.com/abc|Join meeting>"
     assert "> Decide the login fix." in text
     assert "*\U0001F4CB Agenda*\n1. Review MR" in text
     assert f"*\U0001F513 Open items*\n\u2022 <{GL}/g/p/-/merge_requests/7|MR 7 waits on you>" in text
     assert "\u2022 evil" in text                                     # un-offered link: plain text, no link
     assert "*\U0001F4AC Raise*\n\u2022 " in text
     assert "*\u21A9\uFE0F From last time*\n\u2022 Ann owes the test plan" in text
-    assert "; " not in text and "<!channel>" not in text
+    assert "; " not in text and "<!channel>" not in text and "**" not in text
     assert p.digest([loopkit.Outcome("k", "failed", "x")], Ctx()) is None
+
+
+def test_digest_caps_attendees_and_marks_missing_link(tmp_path):
+    names = [{"name": f"P{n}", "email": f"p{n}@x.com", "self": False} for n in range(10)]
+    p = plugin(tmp_path, events=[event(attendees=names, join_url="")])
+    item = p.discover(Ctx())[0]
+    text = p.digest([p.after_item(item, ANSWER, Ctx())], Ctx())
+    assert "*Attendees:* P0, P1, P2, P3, P4, P5, P6, P7 +2 more" in text
+    assert "*Meeting Link:* _none in the invite_" in text
+
+
+def test_invalid_entries_are_removed(tmp_path):
+    p, item = _item_with_links(tmp_path)
+    answer = {"summary": "N/A", "agenda": ["1. Review MR", "- review mr", "None", "tbd", "ok"],
+              "open_items": [{"text": "null", "link": ""}, {"text": "Real item", "link": ""}],
+              "talking_points": ["No agenda provided", "Ask about the rollout date"],
+              "follow_ups": ["", "unknown"]}
+    brief = p.after_item(item, answer, Ctx()).data["brief"]
+    assert brief["summary"] == ""
+    assert brief["agenda"] == ["Review MR"]
+    assert [o["text"] for o in brief["open_items"]] == ["Real item"]
+    assert brief["talking_points"] == ["Ask about the rollout date"]
+    assert brief["follow_ups"] == []
+    text = p.digest([p.after_item(item, answer, Ctx())], Ctx())
+    assert "From last time" not in text and "N/A" not in text
 
 
 def test_after_item_records_the_brief_for_the_live_page(tmp_path):

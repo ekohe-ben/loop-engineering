@@ -37,9 +37,15 @@ per-meeting complement.
   follow_ups}`. Every string is sanitised and capped (summary 400 characters,
   5 entries of 200 per list); an `open_items` link survives only if it was one
   of the offered GitLab URLs.
-- Delivery: one block per brief through the loop's Notify via routing
-  ("Prep: <title> - 10:00-10:30 (in 40 min)", join link, summary, agenda,
-  open items, talking points, follow-ups).
+- Quality filter: after the model answers, list markers are stripped and
+  empty, placeholder ("N/A", "None", "TBD", "No agenda provided"), too-short
+  and duplicate entries are dropped, so a brief only holds content the model
+  could ground in this meeting's data. The prompt requires that grounding.
+- Delivery: one Slack mrkdwn block per brief through the loop's Notify via
+  routing: bold title, then **Date & Time** (weekday, date, range, timezone,
+  minutes until start), **Attendees** (up to 8 names, "+N more") and
+  **Meeting Link**, then the quoted summary, agenda, open items, talking points
+  and follow-ups. Empty sections are omitted.
 
 ## Settings
 

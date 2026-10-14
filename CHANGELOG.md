@@ -13,6 +13,9 @@ or PR. To cut a release, see "Changelog and releases" in `CLAUDE.md`.
 
 ### Added
 
+- Meeting Prep Slack briefs now list the meeting's Date & Time, Attendees and Meeting Link
+  (Slack mrkdwn only), and placeholder, duplicate or empty entries are dropped so each brief
+  holds only content grounded in that meeting's invite, GitLab work and mail.
 - Chat tool calls now show one per line with a translated label and a short
   `project#N` reference instead of the raw tool path and full URL, and clicking a saved
   document link opens it in a right-hand panel beside the thread (with a Download button)
