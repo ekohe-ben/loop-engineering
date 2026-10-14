@@ -1,0 +1,14 @@
+{
+  "default_seat": "claude",
+  "seats": ["claude", "agy"],
+  "summary": {
+    "trigger_turns": 20,
+    "trigger_tokens": 16000,
+    "max_tokens": 3000
+  },
+  "replay": {
+    "recent_turns": 12,
+    "recent_max_tokens": 12000
+  },
+  "sandbox_dir": "~/.loop-engineering/chat-sandbox"
+}
