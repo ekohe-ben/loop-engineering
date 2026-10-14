@@ -104,15 +104,83 @@ Add to `~/.loop-engineering/config.yaml` (or use `config/chat.json.template`):
 
 ## Testing
 
-```bash
-# Run all chat mode tests
-python3 -m pytest tests/chat/ -v
+Chat mode has two test layers: **unit tests** (fast, no subprocess) and **integration tests** (real process boundaries, file I/O).
 
-# Specific test suites
-python3 -m pytest tests/chat/test_backends_argv.py      # Backend command generation
-python3 -m pytest tests/chat/test_session.py             # Session management
-python3 -m pytest tests/chat/test_assembler.py           # Context assembly
+### Unit Tests (Fast)
+
+Unit tests cover pure functions and isolated components:
+
+```bash
+# Run all unit tests
+pytest tests/chat/test_*.py -v
+
+# Specific unit test suites
+pytest tests/chat/test_backends_argv.py      # Backend argv generation (snapshot tests)
+pytest tests/chat/test_session.py             # Session manager (in-memory)
+pytest tests/chat/test_assembler.py           # Context assembly and token budgets
 ```
+
+### Integration Tests (With Fake Claude)
+
+Integration tests exercise real subprocess boundaries and file persistence using a fake `claude` stub:
+
+```bash
+# Run all integration tests
+pytest tests/chat/integration/ -v -m integration
+
+# Run all chat tests (unit + integration)
+pytest tests/chat/ -v
+
+# Specific integration test suites
+pytest tests/chat/integration/test_backend_subprocess.py  # Real subprocess.run() with stub
+pytest tests/chat/integration/test_session_persistence.py # E2E file persistence
+pytest tests/chat/integration/test_resume_and_replay.py   # Resume vs replay paths
+pytest tests/chat/integration/test_repl_smoke.py          # REPL/CLI entry smoke tests
+pytest tests/chat/integration/test_sandbox_redline.py     # Sandbox safety boundaries
+```
+
+**What the fake claude stub covers:**
+- Real subprocess invocation (`subprocess.run`)
+- Correct argv passing (`-p`, `--continue`, `--allowedTools`, etc.)
+- JSON protocol (stub returns proper JSON response structure)
+- Native session IDs for resume testing
+- Failure modes (non-zero exit, malformed JSON)
+
+**No real Claude login required** for default integration tests — the stub handles all subprocess interaction.
+
+### Live Tests (Opt-In, Real Claude CLI)
+
+For end-to-end verification with the real Claude CLI:
+
+```bash
+# Requires: claude CLI installed and logged in
+LOOP_CHAT_LIVE=1 pytest tests/chat/integration/test_sandbox_redline.py::TestLiveSandboxBoundary -v
+```
+
+Live tests are **skipped by default** — they need:
+- Real `claude` binary on PATH
+- Active Claude subscription login
+- Manual verification of tool restrictions
+
+### Running All Tests
+
+```bash
+# All tests (unit + integration, no live)
+pytest tests/chat/ -v
+
+# Quick check (unit only, no subprocess)
+pytest tests/chat/ -v -m "not integration"
+
+# Full suite including integration
+pytest tests/chat/ -v -m "integration or not integration"
+```
+
+### CI/Cloud Agent Testing
+
+Integration tests run in CI with the fake stub (no authentication required). The `integration_env` fixture:
+- Sets `LOOP_ENGINEERING_HOME` to temp directory
+- Creates fake `claude` binary on PATH
+- Provides isolated sandbox and sessions directories
 
 ## Phase 1 MVP Scope
 
