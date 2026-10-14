@@ -80,8 +80,8 @@ class TestClaudeBackendSubprocess:
         assert "session-abc-123" in calls[0]["argv"]
         assert "--continue" not in calls[0]["argv"]
 
-    def test_chat_mode_disallows_all_tools(self, integration_env):
-        """Chat mode denies all tools with --disallowedTools all."""
+    def test_chat_mode_denies_all_tools_correctly(self, integration_env):
+        """Chat mode denies all tools with correct Claude CLI flags."""
         fake_claude = integration_env["fake_claude"]
         sandbox_dir = integration_env["sandbox_dir"]
         
@@ -97,16 +97,24 @@ class TestClaudeBackendSubprocess:
         calls = fake_claude.get_calls()
         argv = calls[0]["argv"]
         
-        # Should use --disallowedTools all (not --allowedTools "")
-        assert "--disallowedTools" in argv
-        idx = argv.index("--disallowedTools")
-        assert argv[idx + 1] == "all"
+        # --tools "" disables built-in tools
+        assert "--tools" in argv
+        tools_idx = argv.index("--tools")
+        assert argv[tools_idx + 1] == ""
         
-        # Should NOT have --permission-mode acceptEdits (auto-accepts writes)
-        assert "--permission-mode" not in argv or "acceptEdits" not in argv
+        # --disallowedTools "*" removes every tool
+        assert "--disallowedTools" in argv
+        disallowed_idx = argv.index("--disallowedTools")
+        assert argv[disallowed_idx + 1] == "*"
+        
+        # --safe-mode for CLAUDE.md/hooks/skills
+        assert "--safe-mode" in argv
+        
+        # Should NOT have --permission-mode acceptEdits
+        assert "--permission-mode" not in argv
 
-    def test_task_mode_enables_tools_with_accept_edits(self, integration_env):
-        """Task mode allows specific tools and uses acceptEdits for unattended operation."""
+    def test_task_mode_enables_real_claude_tools_with_accept_edits(self, integration_env):
+        """Task mode allows real Claude tool names and uses acceptEdits."""
         fake_claude = integration_env["fake_claude"]
         sandbox_dir = integration_env["sandbox_dir"]
         
@@ -122,12 +130,13 @@ class TestClaudeBackendSubprocess:
         calls = fake_claude.get_calls()
         argv = calls[0]["argv"]
         
-        # Should have --allowedTools with specific tools
+        # Should have --allowedTools with real Claude tool names
         assert "--allowedTools" in argv
         idx = argv.index("--allowedTools")
         tools = argv[idx + 1]
         assert tools != ""
-        assert "read_file" in tools or "write_file" in tools
+        # Real Claude tool names: Read Write Edit Bash
+        assert "Read" in tools or "Write" in tools or "Edit" in tools or "Bash" in tools
         
         # Task mode SHOULD use --permission-mode acceptEdits
         assert "--permission-mode" in argv

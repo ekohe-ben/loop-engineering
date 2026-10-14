@@ -35,7 +35,7 @@ class ClaudeBackend(BackendAdapter):
     def argv_for(self, prompt: str, mode: str, native_id: str | None = None) -> list[str]:
         """Build Claude CLI command line.
         
-        Chat mode: no tools + sandbox workdir (set by caller via cwd)
+        Chat mode: no tools + safe-mode + sandbox workdir (set by caller via cwd)
         Task mode: controlled tools (uses existing Loop X tool boundaries)
         """
         cmd = ["claude", "-p"]
@@ -48,13 +48,18 @@ class ClaudeBackend(BackendAdapter):
         # Tool restrictions based on mode
         if mode == "chat":
             # Chat mode: deny all tools for safety
+            # --tools "" disables built-in tools
+            # --disallowedTools "*" removes every tool (asterisk wildcard)
+            # --safe-mode disables CLAUDE.md/hooks/skills discovery
             # Don't use --permission-mode acceptEdits (auto-accepts writes)
-            cmd += ["--disallowedTools", "all"]
+            cmd += ["--tools", ""]
+            cmd += ["--disallowedTools", "*"]
+            cmd += ["--safe-mode"]
         elif mode == "task":
-            # Task mode: use Loop X's existing tool boundaries
+            # Task mode: use Loop X's existing tool boundaries with real Claude tool names
             # Allow specific tools, use acceptEdits for unattended operation
             cmd += ["--permission-mode", "acceptEdits"]
-            cmd += ["--allowedTools", "read_file,write_file,run_shell_command"]
+            cmd += ["--allowedTools", "Read Write Edit Bash"]
         
         cmd += ["--output-format", "json"]
         

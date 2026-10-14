@@ -28,8 +28,8 @@ class TestSandboxRedline:
         assert len(calls) == 1
         assert calls[0]["cwd"] == str(sandbox_dir)
 
-    def test_chat_mode_denies_all_tools(self, integration_env):
-        """Chat mode denies all tools to prevent file operations."""
+    def test_chat_mode_uses_correct_denial_pattern(self, integration_env):
+        """Chat mode uses correct tool denial pattern."""
         fake_claude = integration_env["fake_claude"]
         sandbox_dir = integration_env["sandbox_dir"]
         
@@ -41,14 +41,17 @@ class TestSandboxRedline:
         calls = fake_claude.get_calls()
         argv = calls[0]["argv"]
         
-        # Must use --disallowedTools all
+        # Must use --tools "" and --disallowedTools "*"
+        assert "--tools" in argv
+        tools_idx = argv.index("--tools")
+        assert argv[tools_idx + 1] == ""
+        
         assert "--disallowedTools" in argv
-        idx = argv.index("--disallowedTools")
-        tools = argv[idx + 1]
-        assert tools == "all", f"Chat mode should disallow all tools, got: {tools}"
+        disallowed_idx = argv.index("--disallowedTools")
+        assert argv[disallowed_idx + 1] == "*"
 
     def test_task_mode_uses_real_cwd_and_tools(self, integration_env, tmp_path):
-        """Task mode can use real working directory and tools."""
+        """Task mode can use real working directory and real Claude tool names."""
         fake_claude = integration_env["fake_claude"]
         
         # Use a different directory (not sandbox)
@@ -66,12 +69,13 @@ class TestSandboxRedline:
         # Should run in the real workdir
         assert calls[0]["cwd"] == str(real_workdir)
         
-        # Should have non-empty tool allowlist
+        # Should have non-empty tool allowlist with real Claude tool names
         assert "--allowedTools" in argv
         idx = argv.index("--allowedTools")
         tools = argv[idx + 1]
         assert tools != ""
-        assert "read_file" in tools or "write_file" in tools
+        # Real Claude tool names: Read Write Edit Bash
+        assert "Read" in tools or "Write" in tools or "Edit" in tools or "Bash" in tools
 
     def test_sandbox_directory_is_isolated(self, integration_env):
         """Sandbox directory is separate from real files."""
@@ -197,10 +201,11 @@ class TestSandboxRedline:
         calls = fake_claude.get_calls()
         argv = calls[0]["argv"]
         
-        # Tool restriction still applies - disallow all
+        # Tool restriction still applies - correct flags
+        assert "--tools" in argv
         assert "--disallowedTools" in argv
-        idx = argv.index("--disallowedTools")
-        assert argv[idx + 1] == "all"
+        disallowed_idx = argv.index("--disallowedTools")
+        assert argv[disallowed_idx + 1] == "*"
 
     def test_sandbox_persists_across_repl_instances(self, integration_env):
         """Sandbox directory is consistent for a session."""

@@ -192,7 +192,7 @@ Available commands:
             backend = get_backend(seat)
             self.current_backend = backend
             # Clear native_id when switching seats (forces replay)
-            self.session_mgr.update_seat(self.current_session.id, seat, native_id=None)
+            self.session_mgr.update_seat(self.current_session.id, seat, clear_native=True)
             self.current_session.active_seat = seat
             print(f"Switched to {seat}")
             print("Next message will replay full context with new backend.")
@@ -270,10 +270,10 @@ Available commands:
                 self.session_mgr.sessions_root / self.current_session.id
             )
             
-            # Get recent messages
+            # Get recent messages (full transcript - user message not yet stored)
             recent_messages = [
                 (entry.role, entry.text)
-                for entry in transcript[:-1]  # Exclude the user message we just added
+                for entry in transcript  # Use full transcript (user message stored after success)
             ]
             
             # Assemble replay package

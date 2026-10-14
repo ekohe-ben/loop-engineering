@@ -201,18 +201,23 @@ class SessionManager:
         
         return entries
 
-    def update_seat(self, session_id: str, seat: str, native_id: str | None = None):
-        """Update active seat and optionally record native session ID.
+    def update_seat(self, session_id: str, seat: str, native_id: str | None = None, *, clear_native: bool = False):
+        """Update active seat and optionally record/clear native session ID.
         
         Args:
             session_id: Session identifier
             seat: New backend name
             native_id: Native session ID for this seat (if available)
+            clear_native: If True, clear the native_id for this seat (forces replay)
         """
         meta = self._read_meta(session_id)
         meta.active_seat = seat
         
-        if native_id:
+        if clear_native and seat in meta.native:
+            # Explicitly clear native_id for this seat (e.g., after seat switch)
+            del meta.native[seat]
+        elif native_id:
+            # Record new native_id
             meta.native[seat] = native_id
         
         self._write_meta(session_id, meta)

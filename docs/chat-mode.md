@@ -38,6 +38,16 @@ Each adapter supports:
 - `resume()` - Native session continuation (if supported)
 - `argv_for()` - Pure function for testing (snapshot tests)
 
+**Claude CLI Flags (Chat Mode):**
+```bash
+claude -p --tools "" --disallowedTools "*" --safe-mode --output-format json -- <prompt>
+```
+- `--tools ""` disables built-in tools
+- `--disallowedTools "*"` removes every tool (asterisk wildcard)
+- `--safe-mode` disables CLAUDE.md/hooks/skills discovery
+- `--resume <id>` for native session resume (not `--continue`)
+- `--` separator prevents prompt lines starting with `-` from being parsed as flags
+
 ### 3. Context Assembler (`bin/chat/assembler.py`)
 
 Builds replay packages for cross-seat switching:
@@ -58,13 +68,14 @@ Interactive chat with commands:
 ## Modes
 
 ### Chat Mode (default)
-- No file/shell tools (empty allowlist)
+- `--tools ""` + `--disallowedTools "*"` + `--safe-mode` → no file/shell access
 - Sandbox working directory (`~/.loop-engineering/chat-sandbox/`)
+- No `--permission-mode acceptEdits` → won't auto-accept writes
 - Safe for open-ended discussion
 
 ### Task Mode
-- Full tool access (same boundaries as GitLab loop)
-- Real working directory
+- `--allowedTools "Read Write Edit Bash"` + `--permission-mode acceptEdits`
+- Real working directory (same boundaries as GitLab loop)
 - Requires explicit `/mode task` switch
 
 ## Native Resume vs. Replay
@@ -73,7 +84,7 @@ Two code paths for efficiency:
 
 **Native Resume** (fast path):
 - Same seat, valid native session ID → just send current user input
-- Uses provider's `--continue` or equivalent
+- Uses Claude's `--resume <id>` (specific session) not `--continue` (boolean/latest in cwd)
 - Automatic fallback to replay if resume fails
 
 **Cross-Seat Replay** (compatibility path):
@@ -141,7 +152,7 @@ pytest tests/chat/integration/test_sandbox_redline.py     # Sandbox safety bound
 
 **What the fake claude stub covers:**
 - Real subprocess invocation (`subprocess.run`)
-- Correct argv passing (`-p`, `--continue`, `--allowedTools`, etc.)
+- Correct argv passing (`-p`, `--resume`, `--tools`, `--disallowedTools`, `--safe-mode`, etc.)
 - JSON protocol (stub returns proper JSON response structure)
 - Native session IDs for resume testing
 - Failure modes (non-zero exit, malformed JSON)
@@ -217,7 +228,7 @@ Key design decisions:
 ## Safety Boundaries
 
 ### Chat Mode
-- `--disallowedTools all` → no file/shell access
+- `--tools ""` + `--disallowedTools "*"` + `--safe-mode` → no file/shell access
 - Sandbox working directory (`~/.loop-engineering/chat-sandbox/`) → isolated from real files
 - No `--permission-mode acceptEdits` → won't auto-accept writes
 - Read-only discussion only

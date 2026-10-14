@@ -16,13 +16,18 @@ pytestmark = pytest.mark.integration
 class TestREPLSmoke:
     """Smoke tests for REPL entry point."""
 
-    def test_repl_can_be_imported(self):
-        """REPL module imports without errors."""
+    def test_repl_can_be_imported(self, tmp_path, monkeypatch):
+        """REPL module imports without errors and uses temp home."""
+        # Set temp home to prevent creating real ~/.loop-engineering
+        monkeypatch.setenv("LOOP_ENGINEERING_HOME", str(tmp_path))
+        
         from chat.repl import ChatREPL
         
-        # Should be instantiable
+        # Should be instantiable without creating real home
         repl = ChatREPL()
         assert repl is not None
+        # Verify it used the temp home
+        assert str(tmp_path) in str(repl.session_mgr.sessions_root)
 
     def test_repl_starts_with_temp_home(self, integration_env):
         """REPL starts successfully with temp LOOP_ENGINEERING_HOME."""

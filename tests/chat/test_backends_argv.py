@@ -11,16 +11,22 @@ class TestClaudeBackendArgv:
     """Test Claude backend command-line argument generation."""
 
     def test_invoke_chat_mode(self):
-        """Fresh invoke in chat mode - all tools disallowed."""
+        """Fresh invoke in chat mode - all tools denied with correct flags."""
         backend = ClaudeBackend()
         argv = backend.argv_for("Hello world", mode="chat", native_id=None)
         
         assert "claude" == argv[0]
         assert "-p" in argv
-        # Chat mode: --disallowedTools all (not --allowedTools "")
+        # Chat mode: --tools "" disables built-in tools
+        assert "--tools" in argv
+        tools_idx = argv.index("--tools")
+        assert argv[tools_idx + 1] == ""
+        # Chat mode: --disallowedTools "*" removes every tool
         assert "--disallowedTools" in argv
-        tools_idx = argv.index("--disallowedTools")
-        assert argv[tools_idx + 1] == "all"
+        disallowed_idx = argv.index("--disallowedTools")
+        assert argv[disallowed_idx + 1] == "*"
+        # Chat mode: --safe-mode for CLAUDE.md/hooks/skills
+        assert "--safe-mode" in argv
         # Chat mode: NO --permission-mode acceptEdits
         assert "--permission-mode" not in argv
         assert "--output-format" in argv
@@ -32,7 +38,7 @@ class TestClaudeBackendArgv:
         assert "--continue" not in argv
 
     def test_invoke_task_mode(self):
-        """Fresh invoke in task mode - specific tools allowed with acceptEdits."""
+        """Fresh invoke in task mode - real Claude tool names with acceptEdits."""
         backend = ClaudeBackend()
         argv = backend.argv_for("Do something", mode="task", native_id=None)
         
@@ -42,12 +48,13 @@ class TestClaudeBackendArgv:
         assert "--permission-mode" in argv
         perm_idx = argv.index("--permission-mode")
         assert argv[perm_idx + 1] == "acceptEdits"
-        # Task mode: specific tool allowlist
+        # Task mode: real Claude tool names (Read Write Edit Bash)
         assert "--allowedTools" in argv
         tools_idx = argv.index("--allowedTools")
         tools = argv[tools_idx + 1]
         assert tools != ""
-        assert "read_file" in tools or "write_file" in tools
+        # Real Claude tool names, not python CLI names
+        assert "Read" in tools or "Write" in tools or "Edit" in tools or "Bash" in tools
         assert "--" in argv
         assert "Do something" == argv[-1]
 
