@@ -122,8 +122,23 @@ Default settings:
 - **Summary trigger**: 20 turns or 16K tokens (Phase 2)
 - **Replay recent**: 12 turns / 12K tokens max
 - **Sandbox dir**: `~/.loop-engineering/chat-sandbox/`
+- **Sessions dir**: `~/.loop-engineering/sessions/`
 
 **Phase 2**: Will support `config/chat.json` for customization. Template exists at `config/chat.json.template` for reference.
+
+## Environment Setup
+
+Chat mode uses the Claude Code CLI (`claude`) which must be installed and authenticated:
+
+```bash
+# Verify claude is on PATH
+which claude
+
+# Test authentication (subscription-based, not API key)
+claude "Hello"
+```
+
+The backend respects `CLAUDE_CONFIG_DIR` if set. No `ANTHROPIC_API_KEY` required - authentication is via Claude Code CLI's subscription/OAuth.
 
 ## Testing
 
