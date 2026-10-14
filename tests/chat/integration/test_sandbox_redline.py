@@ -28,8 +28,8 @@ class TestSandboxRedline:
         assert len(calls) == 1
         assert calls[0]["cwd"] == str(sandbox_dir)
 
-    def test_chat_mode_has_empty_tool_allowlist(self, integration_env):
-        """Chat mode passes empty tool allowlist to prevent file operations."""
+    def test_chat_mode_denies_all_tools(self, integration_env):
+        """Chat mode denies all tools to prevent file operations."""
         fake_claude = integration_env["fake_claude"]
         sandbox_dir = integration_env["sandbox_dir"]
         
@@ -41,11 +41,11 @@ class TestSandboxRedline:
         calls = fake_claude.get_calls()
         argv = calls[0]["argv"]
         
-        # Must have --allowedTools ""
-        assert "--allowedTools" in argv
-        idx = argv.index("--allowedTools")
+        # Must use --disallowedTools all
+        assert "--disallowedTools" in argv
+        idx = argv.index("--disallowedTools")
         tools = argv[idx + 1]
-        assert tools == "", f"Chat mode should have empty tool allowlist, got: {tools}"
+        assert tools == "all", f"Chat mode should disallow all tools, got: {tools}"
 
     def test_task_mode_uses_real_cwd_and_tools(self, integration_env, tmp_path):
         """Task mode can use real working directory and tools."""
@@ -197,10 +197,10 @@ class TestSandboxRedline:
         calls = fake_claude.get_calls()
         argv = calls[0]["argv"]
         
-        # Tool restriction still applies
-        assert "--allowedTools" in argv
-        idx = argv.index("--allowedTools")
-        assert argv[idx + 1] == ""
+        # Tool restriction still applies - disallow all
+        assert "--disallowedTools" in argv
+        idx = argv.index("--disallowedTools")
+        assert argv[idx + 1] == "all"
 
     def test_sandbox_persists_across_repl_instances(self, integration_env):
         """Sandbox directory is consistent for a session."""

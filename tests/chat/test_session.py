@@ -179,3 +179,17 @@ class TestSessionManager:
             meta = session_mgr.create_session(title)
             # Session ID is YYYY-MM-DD-<slug>
             assert expected_slug_part in meta.id
+
+    def test_open_session_rejects_path_traversal(self, session_mgr):
+        """Opening session with .. or / in ID raises ValueError."""
+        with pytest.raises(ValueError, match="path traversal"):
+            session_mgr.open_session("../etc/passwd")
+        
+        with pytest.raises(ValueError, match="path traversal"):
+            session_mgr.open_session("../../other")
+        
+        with pytest.raises(ValueError, match="path traversal"):
+            session_mgr.open_session("sessions/2026-10-14-test")
+        
+        with pytest.raises(ValueError, match="path traversal"):
+            session_mgr.open_session("test\\windows\\path")

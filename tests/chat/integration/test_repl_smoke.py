@@ -254,7 +254,7 @@ class TestREPLSmoke:
         assert len(transcript) == 4
         assert transcript[3].text == "Second reply"
         
-        # Verify second call used --continue
+        # Verify second call used --resume for native session
         calls = fake_claude.get_calls()
         assert len(calls) == 1
-        assert "--continue" in calls[0]["argv"]
+        assert "--resume" in calls[0]["argv"]

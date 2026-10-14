@@ -35,29 +35,31 @@ class ClaudeBackend(BackendAdapter):
     def argv_for(self, prompt: str, mode: str, native_id: str | None = None) -> list[str]:
         """Build Claude CLI command line.
         
-        Chat mode: empty tool allowlist + sandbox workdir (set by caller via cwd)
-        Task mode: full tools (uses existing Loop X tool boundaries)
+        Chat mode: no tools + sandbox workdir (set by caller via cwd)
+        Task mode: controlled tools (uses existing Loop X tool boundaries)
         """
         cmd = ["claude", "-p"]
         
         if native_id:
-            # Native resume - only send current user input
-            cmd += ["--continue", native_id]
-        
-        # Permission mode for edits
-        cmd += ["--permission-mode", "acceptEdits"]
+            # Native resume by session ID - use --resume (not --continue)
+            # --continue is boolean (latest conversation in cwd)
+            cmd += ["--resume", native_id]
         
         # Tool restrictions based on mode
         if mode == "chat":
-            # Chat mode: no tools or read-only tools only
-            # For MVP, use empty allowlist to prevent any tool use
-            cmd += ["--allowedTools", ""]
+            # Chat mode: deny all tools for safety
+            # Don't use --permission-mode acceptEdits (auto-accepts writes)
+            cmd += ["--disallowedTools", "all"]
         elif mode == "task":
-            # Task mode: use Loop X's existing tool allowlist
-            # For now, keep it restrictive - can expand later
+            # Task mode: use Loop X's existing tool boundaries
+            # Allow specific tools, use acceptEdits for unattended operation
+            cmd += ["--permission-mode", "acceptEdits"]
             cmd += ["--allowedTools", "read_file,write_file,run_shell_command"]
         
-        cmd += ["--output-format", "json", prompt]
+        cmd += ["--output-format", "json"]
+        
+        # Use -- to prevent prompt starting with - from being parsed as flags
+        cmd += ["--", prompt]
         return cmd
 
     def _execute(self, cmd: list[str], cwd: str) -> ChatResponse | None:
@@ -71,6 +73,10 @@ class ClaudeBackend(BackendAdapter):
                 timeout=300,  # 5 minute timeout for chat
                 check=True,
             )
+        except FileNotFoundError:
+            # Claude CLI not found on PATH
+            print("claude: command not found. Install Claude Code CLI first.", file=sys.stderr)
+            return None
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
             # Log the error but don't crash - return None for graceful degradation
             stderr = getattr(exc, 'stderr', '') or ''
@@ -88,8 +94,11 @@ class ClaudeBackend(BackendAdapter):
         except json.JSONDecodeError:
             return None
 
-        # Extract result text and session ID
+        # Extract result text using same pattern as cost.extract_result_text
+        # Real Claude CLI returns result as a string, not a dict
         result_text = self._extract_result_text(parsed)
+        
+        # Extract session ID for future --resume calls
         native_id = self._extract_session_id(parsed)
         
         # Extract usage/tokens if available
@@ -98,30 +107,24 @@ class ClaudeBackend(BackendAdapter):
         tokens_out = usage.get("output_tokens")
 
         return ChatResponse(
-            text=result_text or "(no response text)",
+            text=result_text,
             native_id=native_id,
             tokens_in=tokens_in,
             tokens_out=tokens_out,
         )
 
     def _extract_result_text(self, parsed: dict) -> str:
-        """Extract the assistant's response text from Claude JSON output."""
-        # Try various paths in Claude CLI output structure
-        if "result" in parsed and isinstance(parsed["result"], dict):
-            if "text" in parsed["result"]:
-                return parsed["result"]["text"]
-        if "text" in parsed:
-            return parsed["text"]
-        if "message" in parsed:
-            return str(parsed["message"])
-        return ""
+        """Extract the assistant's response text from Claude JSON output.
+        
+        Matches cost.extract_result_text pattern: result is a string, not a dict.
+        Real Claude CLI format: {"result": "text response here", ...}
+        """
+        result = parsed.get("result")
+        return result if isinstance(result, str) else "(no result text in CLI output)"
 
     def _extract_session_id(self, parsed: dict) -> str | None:
-        """Extract session ID for future --continue calls."""
-        # Claude CLI may return session info in various fields
-        if "session" in parsed and isinstance(parsed["session"], dict):
-            return parsed["session"].get("id")
-        if "session_id" in parsed:
-            return parsed["session_id"]
-        # If no explicit session ID, return None - resume won't work but that's OK
-        return None
+        """Extract session ID for future --resume calls.
+        
+        Real Claude CLI format: {"session_id": "uuid-here", ...}
+        """
+        return parsed.get("session_id")

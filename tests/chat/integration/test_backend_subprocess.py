@@ -46,10 +46,12 @@ class TestClaudeBackendSubprocess:
         assert len(calls) == 1
         assert calls[0]["argv"][0].endswith("claude")
         assert "-p" in calls[0]["argv"]
+        # Prompt comes after -- separator
+        assert "--" in calls[0]["argv"]
         assert "Test prompt" in calls[0]["argv"]
 
-    def test_resume_with_native_id_calls_continue(self, integration_env):
-        """ClaudeBackend.resume() passes --continue flag."""
+    def test_resume_with_native_id_uses_resume_flag(self, integration_env):
+        """ClaudeBackend.resume() uses --resume (not --continue) for session ID."""
         fake_claude = integration_env["fake_claude"]
         sandbox_dir = integration_env["sandbox_dir"]
         
@@ -69,14 +71,17 @@ class TestClaudeBackendSubprocess:
         assert response is not None
         assert response.text == "Resumed conversation"
         
-        # Verify --continue was passed
+        # Verify --resume was passed (not --continue)
+        # --continue is boolean (latest conversation in cwd)
+        # --resume <id> resumes specific session
         calls = fake_claude.get_calls()
         assert len(calls) == 1
-        assert "--continue" in calls[0]["argv"]
+        assert "--resume" in calls[0]["argv"]
         assert "session-abc-123" in calls[0]["argv"]
+        assert "--continue" not in calls[0]["argv"]
 
-    def test_chat_mode_restricts_tools(self, integration_env):
-        """Chat mode passes empty tool allowlist."""
+    def test_chat_mode_disallows_all_tools(self, integration_env):
+        """Chat mode denies all tools with --disallowedTools all."""
         fake_claude = integration_env["fake_claude"]
         sandbox_dir = integration_env["sandbox_dir"]
         
@@ -92,13 +97,16 @@ class TestClaudeBackendSubprocess:
         calls = fake_claude.get_calls()
         argv = calls[0]["argv"]
         
-        # Should have --allowedTools with empty string
-        assert "--allowedTools" in argv
-        idx = argv.index("--allowedTools")
-        assert argv[idx + 1] == ""
+        # Should use --disallowedTools all (not --allowedTools "")
+        assert "--disallowedTools" in argv
+        idx = argv.index("--disallowedTools")
+        assert argv[idx + 1] == "all"
+        
+        # Should NOT have --permission-mode acceptEdits (auto-accepts writes)
+        assert "--permission-mode" not in argv or "acceptEdits" not in argv
 
-    def test_task_mode_enables_tools(self, integration_env):
-        """Task mode passes tool allowlist."""
+    def test_task_mode_enables_tools_with_accept_edits(self, integration_env):
+        """Task mode allows specific tools and uses acceptEdits for unattended operation."""
         fake_claude = integration_env["fake_claude"]
         sandbox_dir = integration_env["sandbox_dir"]
         
@@ -114,12 +122,17 @@ class TestClaudeBackendSubprocess:
         calls = fake_claude.get_calls()
         argv = calls[0]["argv"]
         
-        # Should have --allowedTools with non-empty list
+        # Should have --allowedTools with specific tools
         assert "--allowedTools" in argv
         idx = argv.index("--allowedTools")
         tools = argv[idx + 1]
         assert tools != ""
         assert "read_file" in tools or "write_file" in tools
+        
+        # Task mode SHOULD use --permission-mode acceptEdits
+        assert "--permission-mode" in argv
+        perm_idx = argv.index("--permission-mode")
+        assert argv[perm_idx + 1] == "acceptEdits"
 
     def test_failed_subprocess_returns_none(self, integration_env, tmp_path, monkeypatch):
         """Backend gracefully handles subprocess failure."""

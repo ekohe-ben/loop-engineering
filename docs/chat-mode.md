@@ -217,11 +217,13 @@ Key design decisions:
 ## Safety Boundaries
 
 ### Chat Mode
-- Empty tool allowlist → no file/shell access
-- Sandbox working directory → isolated from real files
+- `--disallowedTools all` → no file/shell access
+- Sandbox working directory (`~/.loop-engineering/chat-sandbox/`) → isolated from real files
+- No `--permission-mode acceptEdits` → won't auto-accept writes
 - Read-only discussion only
 
 ### Task Mode
+- `--allowedTools <list>` + `--permission-mode acceptEdits` → controlled tool access
 - Same tool boundaries as GitLab loop
 - Explicit `/mode task` required
 - Warning displayed on switch

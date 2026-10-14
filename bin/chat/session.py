@@ -109,7 +109,12 @@ class SessionManager:
             
         Raises:
             FileNotFoundError: If session doesn't exist
+            ValueError: If session_id contains path traversal
         """
+        # Prevent path traversal attacks
+        if ".." in session_id or "/" in session_id or "\\" in session_id:
+            raise ValueError(f"Invalid session_id (path traversal not allowed): {session_id}")
+        
         session_dir = self.sessions_root / session_id
         if not session_dir.exists():
             raise FileNotFoundError(f"Session not found: {session_id}")

@@ -11,44 +11,57 @@ class TestClaudeBackendArgv:
     """Test Claude backend command-line argument generation."""
 
     def test_invoke_chat_mode(self):
-        """Fresh invoke in chat mode - no tools allowed."""
+        """Fresh invoke in chat mode - all tools disallowed."""
         backend = ClaudeBackend()
         argv = backend.argv_for("Hello world", mode="chat", native_id=None)
         
         assert "claude" == argv[0]
         assert "-p" in argv
-        assert "--permission-mode" in argv
-        assert "acceptEdits" in argv
-        assert "--allowedTools" in argv
-        assert "" in argv  # Empty tool allowlist for chat mode
+        # Chat mode: --disallowedTools all (not --allowedTools "")
+        assert "--disallowedTools" in argv
+        tools_idx = argv.index("--disallowedTools")
+        assert argv[tools_idx + 1] == "all"
+        # Chat mode: NO --permission-mode acceptEdits
+        assert "--permission-mode" not in argv
         assert "--output-format" in argv
         assert "json" in argv
+        # Prompt comes after -- separator
+        assert "--" in argv
         assert "Hello world" == argv[-1]
+        assert "--resume" not in argv
         assert "--continue" not in argv
 
     def test_invoke_task_mode(self):
-        """Fresh invoke in task mode - tools allowed."""
+        """Fresh invoke in task mode - specific tools allowed with acceptEdits."""
         backend = ClaudeBackend()
         argv = backend.argv_for("Do something", mode="task", native_id=None)
         
         assert "claude" == argv[0]
         assert "-p" in argv
+        # Task mode: uses acceptEdits
+        assert "--permission-mode" in argv
+        perm_idx = argv.index("--permission-mode")
+        assert argv[perm_idx + 1] == "acceptEdits"
+        # Task mode: specific tool allowlist
         assert "--allowedTools" in argv
-        # Should have some tools listed
         tools_idx = argv.index("--allowedTools")
         tools = argv[tools_idx + 1]
         assert tools != ""
         assert "read_file" in tools or "write_file" in tools
+        assert "--" in argv
         assert "Do something" == argv[-1]
 
     def test_resume_with_native_id(self):
-        """Resume existing session with --continue."""
+        """Resume existing session with --resume (not --continue)."""
         backend = ClaudeBackend()
         argv = backend.argv_for("Follow up", mode="chat", native_id="session-123")
         
         assert "claude" == argv[0]
-        assert "--continue" in argv
+        # --resume <id> for specific session (not --continue)
+        assert "--resume" in argv
         assert "session-123" in argv
+        assert "--continue" not in argv
+        assert "--" in argv
         assert "Follow up" == argv[-1]
 
     def test_resume_without_native_id_falls_back_to_invoke(self):
@@ -58,6 +71,7 @@ class TestClaudeBackendArgv:
         argv_resume = backend.argv_for("Test", mode="chat", native_id=None)
         
         assert argv_invoke == argv_resume
+        assert "--resume" not in argv_resume
         assert "--continue" not in argv_resume
 
 

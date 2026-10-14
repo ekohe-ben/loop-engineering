@@ -62,11 +62,12 @@ class TestResumeAndReplay:
         assert response2 is not None
         assert response2.text == "Second response"
         
-        # Verify --continue was used
+        # Verify --resume was used (not --continue)
         calls = fake_claude.get_calls()
         assert len(calls) == 1
-        assert "--continue" in calls[0]["argv"]
+        assert "--resume" in calls[0]["argv"]
         assert "native-session-abc" in calls[0]["argv"]
+        assert "--continue" not in calls[0]["argv"]
 
     def test_cross_seat_forces_full_replay(self, integration_env):
         """Switching seats forces full context replay via invoke."""

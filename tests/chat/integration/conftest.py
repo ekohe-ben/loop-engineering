@@ -90,9 +90,15 @@ sys.exit(0)
     
     def set_response(self, text: str, session_id: str | None = None, 
                      tokens_in: int = 100, tokens_out: int = 50, response_num: int = 0):
-        """Set the response the fake claude will return."""
+        """Set the response the fake claude will return.
+        
+        Matches real Claude CLI format:
+        - result is a string (not dict with text)
+        - session_id at top level
+        - usage dict with input_tokens/output_tokens
+        """
         response = {
-            "result": {"text": text},
+            "result": text,  # String, not {"text": ...}
             "usage": {"input_tokens": tokens_in, "output_tokens": tokens_out},
         }
         if session_id:

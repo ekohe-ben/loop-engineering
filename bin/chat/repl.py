@@ -191,7 +191,8 @@ Available commands:
         try:
             backend = get_backend(seat)
             self.current_backend = backend
-            self.session_mgr.update_seat(self.current_session.id, seat)
+            # Clear native_id when switching seats (forces replay)
+            self.session_mgr.update_seat(self.current_session.id, seat, native_id=None)
             self.current_session.active_seat = seat
             print(f"Switched to {seat}")
             print("Next message will replay full context with new backend.")
@@ -239,21 +240,15 @@ Available commands:
         Args:
             user_input: User's message text
         """
-        # Append user message to transcript
-        self.session_mgr.append_message(
-            self.current_session.id,
-            role="user",
-            text=user_input,
-        )
-        
         # Determine if we can use native resume or need full replay
+        # Check BEFORE appending user message (don't store if CLI fails)
         native_id = self.session_mgr.get_native_id(
             self.current_session.id,
             self.current_backend.name
         )
         
         transcript = self.session_mgr.read_transcript(self.current_session.id)
-        is_first_message = len(transcript) <= 1  # Only user message so far
+        is_first_message = len(transcript) == 0  # No messages yet
         
         # Try native resume first if available
         response = None
@@ -302,6 +297,14 @@ Available commands:
         
         # Display response
         print(f"\n{response.text}\n")
+        
+        # Only NOW append both user and assistant messages to transcript
+        # (CLI succeeded, safe to persist)
+        self.session_mgr.append_message(
+            self.current_session.id,
+            role="user",
+            text=user_input,
+        )
         
         # Append assistant message to transcript
         self.session_mgr.append_message(
