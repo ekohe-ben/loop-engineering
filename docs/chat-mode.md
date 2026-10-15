@@ -6,28 +6,38 @@ Chat mode adds a stateful conversation layer to Loop X, allowing interactive cha
 
 ## Quick Start
 
-### CLI (Available Now)
+### Dashboard UI (Available Now)
+
+Start the dashboard server:
 
 ```bash
-# List existing sessions
-python3 bin/loop_chat.py
-
-# Create/open a session
-python3 bin/loop_chat.py "Discussion about Python"
-python3 bin/loop_chat.py "TCP/IP networking"
-
-# In the REPL, use commands:
-/seat claude     # Switch to Claude
-/seat agy        # Switch to Agy (Phase 1 stub)
-/mode task       # Enable tools (use with caution)
-/mode chat       # Back to safe chat mode
-/replay          # Force full context replay
-/end             # End session
+python3 bin/web/dashboard_server.py
 ```
 
-### Dashboard UI (Phase 2)
+Navigate to `http://localhost:8080/chat` for:
+- Session list / create / open
+- Send messages to Claude
+- View transcripts with role-based formatting
+- Switch mode (`chat` / `task`) and seat (`claude` / `agy`)
+- All sessions persist to `$LOOP_ENGINEERING_HOME/sessions`
 
-The web dashboard integration is planned for Phase 2. For now, use the CLI above for full functionality.
+**Note**: The Activity page chat-tool assistant (Settings → Chat tools) remains separate and unchanged.
+
+### CLI REPL (Available Now)
+
+```bash
+python3 -m chat.repl
+```
+
+**REPL commands:**
+- `/open <session-id>` - Open existing session
+- `/new <title>` - Create new session  
+- `/list` - List recent sessions
+- `/mode <chat|task>` - Switch conversation mode
+- `/seat <claude|agy>` - Switch AI seat
+- `/replay` - Regenerate transcript for current seat
+- `/help` - Show all commands
+- `/quit` - Exit
 
 To start the dashboard server locally:
 ```bash
