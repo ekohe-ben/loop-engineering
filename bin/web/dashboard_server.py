@@ -16581,7 +16581,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._redirect_with_flash(result["ok"], result["message"], location=result["location"])
             return
 
-        self._not_found()
+
         # Chat Mode POST handlers
         if self.path == "/chat/create":
             if not self._csrf_ok(body):
@@ -16600,6 +16600,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             except Exception as exc:
                 self._redirect_with_flash(False, f"Error: {exc}", location="/chat")
             return
+
         if self.path == "/chat/send":
             if not self._csrf_ok(body):
                 self._forbidden()
@@ -16632,6 +16633,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             except Exception as exc:
                 self._redirect_with_flash(False, f"Error: {exc}", location=f"/chat?session={urllib.parse.quote(session_id) if session_id else ''}")
             return
+
         if self.path == "/chat/mode":
             if not self._csrf_ok(body):
                 self._forbidden()
@@ -16650,6 +16652,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             except Exception as exc:
                 self._redirect_with_flash(False, f"Error: {exc}", location=f"/chat?session={urllib.parse.quote(session_id) if session_id else ''}")
             return
+
         if self.path == "/chat/seat":
             if not self._csrf_ok(body):
                 self._forbidden()
@@ -16669,6 +16672,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._redirect_with_flash(False, f"Error: {exc}", location=f"/chat?session={urllib.parse.quote(session_id) if session_id else ''}")
             return
 
+        self._not_found()
     @staticmethod
     def _csrf_ok(body):
         """True only if the URL-encoded request body carries a csrf_token

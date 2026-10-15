@@ -14,7 +14,7 @@ Start the dashboard server:
 python3 bin/web/dashboard_server.py
 ```
 
-Navigate to `http://localhost:8080/chat` for:
+Navigate to `http://localhost:8420/chat` for:
 - Session list / create / open
 - Send messages to Claude
 - View transcripts with role-based formatting
@@ -42,7 +42,7 @@ python3 -m chat.repl
 To start the dashboard server locally:
 ```bash
 python3 bin/web/dashboard_server.py
-# Open http://localhost:8080
+# Open http://localhost:8420
 ```
 
 ## Architecture
