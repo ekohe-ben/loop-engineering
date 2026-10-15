@@ -70,6 +70,10 @@ import slack_notify
 import topic_config
 import topic_seen
 
+# Chat mode
+from chat.session import SessionManager
+from chat.backends.claude import ClaudeBackend
+
 # inbox_pages is bin/web/inbox_pages.py - this file's own sibling, so no
 # sys.path insert is needed for it the way the bin/-level imports above
 # need one (see the comment on sys.path.insert just above).
@@ -7375,6 +7379,7 @@ _NAV_ITEMS = (
     ("loops", "/loops", "Loops", _SECTION_ICON_LOOPS),
     ("runs", "/runs", "Runs", _SECTION_ICON_LOOP_RUNS),
     ("insights", "/insights", "Insights", _SECTION_ICON_ANALYTICS),
+    ("chat", "/chat", "Chat", "💬"),
     ("harness", "/harness", "Harness", _SECTION_ICON_AUDIT),
     ("connectors", "/connectors", "Connectors", _SECTION_ICON_CONNECTORS),
     ("settings", "/settings", "Settings", _SECTION_ICON_GENERAL_SETTINGS),
@@ -14427,6 +14432,167 @@ def _evals_body(base_dir=None):
 """
 
 
+# Chat Mode UI render function - insert before def _hubs()
+
+def render_chat_mode_page(flash=None, flash_ok=True, session_id=None):
+    """Chat Mode page - browser UI for Loop X chat sessions."""
+    loop_home = Path(os.environ.get("LOOP_ENGINEERING_HOME", 
+                                    str(Path.home() / ".loop-engineering")))
+    sessions_root = loop_home / "sessions"
+    session_mgr = SessionManager(sessions_root)
+    
+    sessions = session_mgr.list_sessions(limit=20)
+    current_session = None
+    transcript = []
+    
+    if session_id:
+        try:
+            current_session = session_mgr.open_session(session_id)
+            transcript = session_mgr.read_transcript(session_id)
+        except (FileNotFoundError, ValueError):
+            pass
+    
+    # Sessions list
+    sessions_html = ""
+    if sessions:
+        items = []
+        for s in sessions:
+            active = " class='active'" if (current_session and s.id == current_session.id) else ""
+            items.append(
+                f"<li{active}><a href='/chat?session={html.escape(s.id)}'>"
+                f"{html.escape(s.title)} <span class='meta'>({s.mode} · {s.active_seat})</span></a></li>"
+            )
+        sessions_html = "<ul class='session-list'>" + "".join(items) + "</ul>"
+    else:
+        sessions_html = "<p class='empty'>No sessions yet. Create one below.</p>"
+    
+    # Transcript
+    transcript_html = ""
+    if transcript:
+        msgs = []
+        for entry in transcript:
+            role_cls = "user" if entry.role == "user" else "assistant"
+            msgs.append(
+                f"<div class='msg {role_cls}'>"
+                f"<div class='role'>{html.escape(entry.role)}</div>"
+                f"<div class='text'>{html.escape(entry.text)}</div>"
+                f"</div>"
+            )
+        transcript_html = "<div class='transcript'>" + "".join(msgs) + "</div>"
+    else:
+        transcript_html = "<p class='empty'>No messages yet.</p>"
+    
+    # Session info
+    session_info = ""
+    if current_session:
+        session_info = f"""
+        <div class='session-info'>
+            <h3>{html.escape(current_session.title)}</h3>
+            <div class='meta'>
+                <span>Mode: <strong>{html.escape(current_session.mode)}</strong></span>
+                <span>Seat: <strong>{html.escape(current_session.active_seat)}</strong></span>
+                <span>Messages: <strong>{len(transcript)}</strong></span>
+            </div>
+            <div class='controls'>
+                <form method='POST' action='/chat/mode' style='display:inline'>
+                    <input type='hidden' name='csrf_token' value='{_CSRF_TOKEN}'>
+                    <input type='hidden' name='session' value='{html.escape(current_session.id)}'>
+                    <select name='mode' onchange='this.form.submit()'>
+                        <option value='chat'{"selected" if current_session.mode == "chat" else ""}>Chat</option>
+                        <option value='task'{"selected" if current_session.mode == "task" else ""}>Task</option>
+                    </select>
+                </form>
+                <form method='POST' action='/chat/seat' style='display:inline;margin-left:1rem'>
+                    <input type='hidden' name='csrf_token' value='{_CSRF_TOKEN}'>
+                    <input type='hidden' name='session' value='{html.escape(current_session.id)}'>
+                    <select name='seat' onchange='this.form.submit()'>
+                        <option value='claude'{"selected" if current_session.active_seat == "claude" else ""}>Claude</option>
+                        <option value='agy'{"selected" if current_session.active_seat == "agy" else ""}>Agy</option>
+                    </select>
+                </form>
+            </div>
+        </div>
+        """
+    
+    # New session form
+    new_form = f"""
+    <div class='new-form'>
+        <h4>New Session</h4>
+        <form method='POST' action='/chat/create'>
+            <input type='hidden' name='csrf_token' value='{_CSRF_TOKEN}'>
+            <input type='text' name='title' placeholder='Session title' required>
+            <button type='submit'>Create</button>
+        </form>
+    </div>
+    """
+    
+    # Message form
+    msg_form = ""
+    if current_session:
+        msg_form = f"""
+        <div class='msg-form'>
+            <form method='POST' action='/chat/send'>
+                <input type='hidden' name='csrf_token' value='{_CSRF_TOKEN}'>
+                <input type='hidden' name='session' value='{html.escape(current_session.id)}'>
+                <textarea name='text' rows='3' placeholder='Type message...' required></textarea>
+                <button type='submit'>Send</button>
+            </form>
+        </div>
+        """
+    
+    # Flash
+    flash_html = ""
+    if flash:
+        cls = "success" if flash_ok else "error"
+        flash_html = f"<div class='flash {cls}'>{html.escape(flash)}</div>"
+    
+    body = f"""
+    <div class='page-title'><h1>Chat Mode</h1></div>
+    {flash_html}
+    <div class='chat-layout'>
+        <div class='sidebar'>
+            <h3>Sessions</h3>
+            {sessions_html}
+            {new_form}
+        </div>
+        <div class='main'>
+            {session_info}
+            {transcript_html}
+            {msg_form}
+        </div>
+    </div>
+    <style>
+        .chat-layout{{display:flex;gap:2rem;margin-top:1rem}}
+        .sidebar{{flex:0 0 300px}}
+        .main{{flex:1}}
+        .session-list{{list-style:none;padding:0}}
+        .session-list li{{margin:0.5rem 0}}
+        .session-list li.active a{{font-weight:bold}}
+        .session-list .meta{{font-size:0.9em;color:#666}}
+        .session-info{{background:#f5f5f5;padding:1rem;margin-bottom:1rem;border-radius:4px}}
+        .session-info .meta{{margin:0.5rem 0}}
+        .session-info .meta span{{margin-right:1.5rem}}
+        .transcript{{max-height:500px;overflow-y:auto;margin-bottom:1rem}}
+        .msg{{margin:1rem 0;padding:0.5rem;border-left:3px solid #ddd}}
+        .msg.user{{border-left-color:#4CAF50}}
+        .msg.assistant{{border-left-color:#2196F3}}
+        .msg .role{{font-weight:bold;font-size:0.9em;margin-bottom:0.25rem}}
+        .msg .text{{white-space:pre-wrap}}
+        .msg-form textarea{{width:100%;padding:0.5rem}}
+        .msg-form button{{margin-top:0.5rem}}
+        .new-form{{margin-top:2rem;padding-top:2rem;border-top:1px solid #ddd}}
+        .new-form input{{width:100%;padding:0.5rem;margin-bottom:0.5rem}}
+        .empty{{color:#666;font-style:italic}}
+        .flash{{padding:1rem;margin-bottom:1rem;border-radius:4px}}
+        .flash.success{{background:#d4edda;color:#155724}}
+        .flash.error{{background:#f8d7da;color:#721c24}}
+    </style>
+    """
+    
+    return _render_shell("Chat Mode · Loop X", "chat", _default_badge(), body)
+
+
+
 def _hubs():
     """Built per call (not at import) so monkeypatched _*_body functions and
     per-request translation both apply. View labels are English literals,
@@ -14466,6 +14632,10 @@ def _hubs():
             V("daemons", "Daemons", lambda **kw: _daemons_body(**_only(kw, "flash", "flash_ok"))),
             V("skills", "Skills", lambda **kw: _skills_body(**_only(kw, "flash", "flash_ok"))),
             V("chat", "Chat tools", lambda **kw: _chat_tools_body(**_only(kw, "flash", "flash_ok"))),
+        )),
+        "chat": hub_mod.Hub("chat", "/chat", "Chat", "💬", (
+            V("chat", "Chat", lambda **kw: render_chat_mode_page(
+                kw.get("flash"), kw.get("flash_ok", True), session_id=kw.get("session_id"))),
         )),
     }
 
@@ -15305,7 +15475,7 @@ _LEGACY_REDIRECTS = {
 
 _HUB_PATHS = {"/": "overview", "/runs": "runs", "/insights": "insights",
               "/harness": "harness", "/settings": "settings",
-              "/connectors": "connectors"}
+              "/connectors": "connectors", "/chat": "chat"}
 
 
 def legacy_redirect_target(path, query):
@@ -16411,8 +16581,98 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._redirect_with_flash(result["ok"], result["message"], location=result["location"])
             return
 
-        self._not_found()
 
+        # Chat Mode POST handlers
+        if self.path == "/chat/create":
+            if not self._csrf_ok(body):
+                self._forbidden()
+                return
+            form = urllib.parse.parse_qs(body.decode("utf-8", errors="replace"))
+            title = form.get("title", [""])[0].strip()
+            if not title:
+                self._redirect_with_flash(False, "Title required", location="/chat")
+                return
+            try:
+                loop_home = Path(os.environ.get("LOOP_ENGINEERING_HOME", str(Path.home() / ".loop-engineering")))
+                session_mgr = SessionManager(loop_home / "sessions")
+                meta = session_mgr.create_session(title)
+                self._redirect_with_flash(True, f"Created: {title}", location=f"/chat?session={urllib.parse.quote(meta.id)}")
+            except Exception as exc:
+                self._redirect_with_flash(False, f"Error: {exc}", location="/chat")
+            return
+
+        if self.path == "/chat/send":
+            if not self._csrf_ok(body):
+                self._forbidden()
+                return
+            form = urllib.parse.parse_qs(body.decode("utf-8", errors="replace"))
+            session_id = form.get("session", [""])[0]
+            text = form.get("text", [""])[0].strip()
+            if not session_id or not text:
+                self._redirect_with_flash(False, "Session and text required", location=f"/chat?session={urllib.parse.quote(session_id) if session_id else ''}")
+                return
+            try:
+                loop_home = Path(os.environ.get("LOOP_ENGINEERING_HOME", str(Path.home() / ".loop-engineering")))
+                sandbox_dir = loop_home / "chat-sandbox"
+                sandbox_dir.mkdir(parents=True, exist_ok=True)
+                session_mgr = SessionManager(loop_home / "sessions")
+                meta = session_mgr.open_session(session_id)
+                native_id = session_mgr.get_native_id(session_id, meta.active_seat)
+                backend = ClaudeBackend()
+                response = backend.resume(native_id, text, meta.mode, str(sandbox_dir)) if native_id else None
+                if response is None:
+                    response = backend.invoke(text, meta.mode, str(sandbox_dir))
+                if response is None:
+                    self._redirect_with_flash(False, "Backend failed", location=f"/chat?session={urllib.parse.quote(session_id)}")
+                    return
+                session_mgr.append_message(session_id, "user", text)
+                session_mgr.append_message(session_id, "assistant", response.text, seat=meta.active_seat, native_id=response.native_id, tokens_in=response.tokens_in, tokens_out=response.tokens_out)
+                if response.native_id:
+                    session_mgr.update_seat(session_id, meta.active_seat, native_id=response.native_id)
+                self._redirect_with_flash(True, "Sent", location=f"/chat?session={urllib.parse.quote(session_id)}")
+            except Exception as exc:
+                self._redirect_with_flash(False, f"Error: {exc}", location=f"/chat?session={urllib.parse.quote(session_id) if session_id else ''}")
+            return
+
+        if self.path == "/chat/mode":
+            if not self._csrf_ok(body):
+                self._forbidden()
+                return
+            form = urllib.parse.parse_qs(body.decode("utf-8", errors="replace"))
+            session_id = form.get("session", [""])[0]
+            mode = form.get("mode", [""])[0]
+            if not session_id or mode not in ("chat", "task"):
+                self._redirect_with_flash(False, "Invalid mode", location=f"/chat?session={urllib.parse.quote(session_id) if session_id else ''}")
+                return
+            try:
+                loop_home = Path(os.environ.get("LOOP_ENGINEERING_HOME", str(Path.home() / ".loop-engineering")))
+                session_mgr = SessionManager(loop_home / "sessions")
+                session_mgr.update_mode(session_id, mode)
+                self._redirect_with_flash(True, f"Switched to {mode}", location=f"/chat?session={urllib.parse.quote(session_id)}")
+            except Exception as exc:
+                self._redirect_with_flash(False, f"Error: {exc}", location=f"/chat?session={urllib.parse.quote(session_id) if session_id else ''}")
+            return
+
+        if self.path == "/chat/seat":
+            if not self._csrf_ok(body):
+                self._forbidden()
+                return
+            form = urllib.parse.parse_qs(body.decode("utf-8", errors="replace"))
+            session_id = form.get("session", [""])[0]
+            seat = form.get("seat", [""])[0]
+            if not session_id or seat not in ("claude", "agy"):
+                self._redirect_with_flash(False, "Invalid seat", location=f"/chat?session={urllib.parse.quote(session_id) if session_id else ''}")
+                return
+            try:
+                loop_home = Path(os.environ.get("LOOP_ENGINEERING_HOME", str(Path.home() / ".loop-engineering")))
+                session_mgr = SessionManager(loop_home / "sessions")
+                session_mgr.update_seat(session_id, seat, clear_native=True)
+                self._redirect_with_flash(True, f"Switched to {seat}", location=f"/chat?session={urllib.parse.quote(session_id)}")
+            except Exception as exc:
+                self._redirect_with_flash(False, f"Error: {exc}", location=f"/chat?session={urllib.parse.quote(session_id) if session_id else ''}")
+            return
+
+        self._not_found()
     @staticmethod
     def _csrf_ok(body):
         """True only if the URL-encoded request body carries a csrf_token
